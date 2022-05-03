@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "bf_kolmogrov"
+name = "bf_beavers"
 version = "0.1.0"

@@ -16,13 +16,13 @@ pub struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(program: Program) -> ExecutionContext {
+    pub fn new(program: &Program) -> ExecutionContext {
         ExecutionContext {
             memory_behavior: MEMORY_BEHAVIOR,
             memory: vec![0; INITAL_MEMORY],
             memory_pointer: 0,
             program_pointer: 0,
-            program,
+            program: program.clone(),
         }
     }
 
@@ -61,7 +61,8 @@ impl ExecutionContext {
                     self.program_pointer = self
                         .program
                         .matching_loop(self.program_pointer)
-                        .expect("missing StartLoop dict entry!");
+                        .expect("missing StartLoop dict entry!")
+                        + 1;
                 }
             }
             EndLoop => {
@@ -81,17 +82,19 @@ impl ExecutionContext {
     }
 
     pub fn print_state(&self) {
+        let this_instr = if self.halted() {
+            "HALTED".to_string()
+        } else {
+            self.program.get(self.program_pointer).to_string()
+        };
+
         let memory: String = self
             .memory
             .iter()
             .map(|x| format!("{: >4}", x))
             .intersperse(" ".to_string())
             .collect();
-        println!(
-            "[{}] (this_instr = {})",
-            memory,
-            self.program.get(self.program_pointer)
-        );
+        println!("[{}] (this_instr = {})", memory, this_instr,);
 
         let memory_pointer: String = self
             .memory
@@ -132,9 +135,12 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn new(instrs: Vec<Instr>) -> Result<Program, CompileError> {
-        let loop_dict = loop_dict(&instrs)?;
-        Ok(Program { instrs, loop_dict })
+    pub fn new(instrs: &[Instr]) -> Result<Program, CompileError> {
+        let loop_dict = loop_dict(instrs)?;
+        Ok(Program {
+            instrs: instrs.to_vec(),
+            loop_dict,
+        })
     }
 
     pub fn get(&self, i: usize) -> Instr {
@@ -148,7 +154,7 @@ impl Program {
 
 impl Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}", to_string(&self.instrs))
+        write!(f, "{}", to_string(&self.instrs))
     }
 }
 
@@ -156,8 +162,11 @@ impl TryFrom<&str> for Program {
     type Error = CompileError;
 
     fn try_from(string: &str) -> Result<Self, Self::Error> {
-        let instrs = string.chars().filter_map(|x| x.try_into().ok()).collect();
-        Program::new(instrs)
+        let instrs = string
+            .chars()
+            .filter_map(|x| x.try_into().ok())
+            .collect::<Vec<Instr>>();
+        Program::new(&instrs)
     }
 }
 
@@ -169,12 +178,14 @@ fn loop_dict(program: &[Instr]) -> Result<HashMap<usize, usize>, CompileError> {
         match instr {
             Plus | Minus | Left | Right => (),
             StartLoop => {
-                hashmap.insert(i, 0);
                 startloop_locs.push(i);
             }
             EndLoop => {
                 match startloop_locs.pop() {
-                    Some(start_loop) => hashmap.insert(i, start_loop),
+                    Some(start_loop) => {
+                        hashmap.insert(i, start_loop);
+                        hashmap.insert(start_loop, i);
+                    }
                     None => return Err(CompileError::UnmatchedEndLoop { index: i }),
                 };
             }
