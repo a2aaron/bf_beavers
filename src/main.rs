@@ -18,7 +18,7 @@ fn step_count(program: &bf::Program, max_steps: usize) -> Option<usize> {
                 return Some(total_real_steps);
             }
             ExecutionState::InfiniteLoop => {
-                // eprintln!("bailed: {} (infinite loop)", program);
+                eprintln!("bailed: {} (infinite loop)", program);
                 return None;
             }
             ExecutionState::Running => (),
@@ -45,15 +45,22 @@ fn beaver(length: usize, max_steps: usize) -> (Vec<bf::Program>, usize) {
             None => (),
         }
     }
+
+    println!(
+        "ratio = {}/{}",
+        generate::brute_force_iterator(length).count(),
+        generate::lexiographic_order(length).count(),
+    );
     (best_programs, best_steps)
 }
 
 fn trace(program: &bf::Program) {
     let mut ctx = bf::ExecutionContext::new(program);
-    ctx.print_state();
+
     loop {
-        let (_, state) = ctx.step();
         ctx.print_state();
+        let (_, state) = ctx.step();
+
         match state {
             ExecutionState::Running => (),
             ExecutionState::Halted => {
@@ -61,6 +68,7 @@ fn trace(program: &bf::Program) {
                 break;
             }
             ExecutionState::InfiniteLoop => {
+                ctx.print_state();
                 println!("Infinite loop detected.");
                 break;
             }
@@ -69,15 +77,15 @@ fn trace(program: &bf::Program) {
 }
 
 fn main() {
-    let max_steps = 1_000_000;
-    let debug = false;
+    let max_steps = 5_000;
+    let debug = true;
     if debug {
-        let program = bf::Program::try_from("++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.").unwrap();
+        let program = bf::Program::try_from("+[[+]-]").unwrap();
         println!("{:?}", program);
         trace(&program);
         println!("{:?}", step_count(&program, max_steps));
     } else {
-        for i in 0..6 {
+        for i in 0..8 {
             let (programs, steps) = beaver(i, max_steps);
 
             println!(

@@ -10,7 +10,7 @@ pub fn brute_force_iterator(length: usize) -> impl Iterator<Item = Program> {
     lexiographic_order(length).filter_map(|instrs| Program::new(&instrs).ok())
 }
 
-fn lexiographic_order(length: usize) -> impl Iterator<Item = Vec<Instr>> {
+pub fn lexiographic_order(length: usize) -> impl Iterator<Item = Vec<Instr>> {
     fn next(instr: &Instr) -> (bool, Instr) {
         match instr {
             Instr::Plus => (false, Instr::Minus),
