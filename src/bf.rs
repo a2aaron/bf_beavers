@@ -153,23 +153,13 @@ impl ExecutionContext {
         }
     }
 
-    pub fn print_state(&self) {
-        let this_instr = if let Some(instr) = self.program.get(self.program_pointer) {
-            instr.to_string()
-        } else {
-            "HALTED".to_string()
-        };
-
+    pub fn print_state(&self, show_execution_history: bool) {
         let memory: String = self
             .memory
             .iter()
             .map(|x| format!("{:0>2X}", x))
             .intersperse(" ".to_string())
             .collect();
-        println!(
-            "[{}] (this_instr = {} @ {})",
-            memory, this_instr, self.program_pointer
-        );
 
         let memory_pointer: String = self
             .memory
@@ -184,7 +174,6 @@ impl ExecutionContext {
             })
             .intersperse(" ")
             .collect();
-        println!(" {} ", memory_pointer);
 
         let program = self
             .program
@@ -207,15 +196,19 @@ impl ExecutionContext {
             })
             .collect::<String>();
 
+        println!("{}", memory);
+        println!("{}", memory_pointer);
         println!("{}", program);
         println!("{}", program_ptr);
 
-        for (idx, states) in self.execution_histories.iter() {
-            println!("history for instr @ {}", idx);
-            for state in states {
-                print!("{}, ", state);
+        if show_execution_history {
+            for (idx, states) in self.execution_histories.iter() {
+                println!("history for instr @ {}", idx);
+                for state in states {
+                    print!("{}, ", state);
+                }
+                println!();
             }
-            println!();
         }
     }
 }

@@ -54,11 +54,11 @@ fn beaver(length: usize, max_steps: usize) -> (Vec<bf::Program>, usize) {
     (best_programs, best_steps)
 }
 
-fn trace(program: &bf::Program) {
+fn trace(program: &bf::Program, max_steps: usize) {
     let mut ctx = bf::ExecutionContext::new(program);
 
-    loop {
-        ctx.print_state();
+    for _ in 0..max_steps {
+        ctx.print_state(false);
         let (_, state) = ctx.step();
 
         match state {
@@ -68,7 +68,7 @@ fn trace(program: &bf::Program) {
                 break;
             }
             ExecutionState::InfiniteLoop => {
-                ctx.print_state();
+                ctx.print_state(true);
                 println!("Infinite loop detected.");
                 break;
             }
@@ -77,12 +77,12 @@ fn trace(program: &bf::Program) {
 }
 
 fn main() {
-    let max_steps = 5_000;
+    let max_steps = 10;
     let debug = true;
     if debug {
-        let program = bf::Program::try_from("+[[+]-]").unwrap();
+        let program = bf::Program::try_from("+[>+]").unwrap();
         println!("{:?}", program);
-        trace(&program);
+        trace(&program, max_steps);
         println!("{:?}", step_count(&program, max_steps));
     } else {
         for i in 0..8 {
