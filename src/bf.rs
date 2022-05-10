@@ -2,13 +2,11 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 
-const MEMORY_BEHAVIOR: MemoryBehavior = MemoryBehavior::InfiniteRightwards;
 const INITAL_MEMORY: usize = 1;
 const EXTEND_MEMORY_AMOUNT: usize = 1;
 
 #[derive(Debug)]
 pub struct ExecutionContext {
-    memory_behavior: MemoryBehavior,
     memory: Vec<u8>,
     memory_pointer: usize,
     program: Program,
@@ -27,7 +25,6 @@ impl ExecutionContext {
         }
 
         ExecutionContext {
-            memory_behavior: MEMORY_BEHAVIOR,
             memory: vec![0; INITAL_MEMORY],
             memory_pointer: 0,
             program_pointer: 0,
@@ -38,15 +35,6 @@ impl ExecutionContext {
     }
 
     pub fn step(&mut self) -> (usize, ExecutionState) {
-        fn wrapping_add(a: usize, b: isize, modulo: usize) -> usize {
-            let x = a as isize + b;
-            if x < 0 {
-                (x + modulo as isize) as usize % modulo
-            } else {
-                x as usize % modulo
-            }
-        }
-
         let instruction = self.program.get(self.program_pointer);
 
         match instruction {
@@ -62,32 +50,22 @@ impl ExecutionContext {
                             self.memory[self.memory_pointer] =
                                 self.memory[self.memory_pointer].wrapping_sub(1)
                         }
-                        Instr::Left => match self.memory_behavior {
-                            MemoryBehavior::Wrapping(modulo) => {
-                                self.memory_pointer = wrapping_add(self.memory_pointer, -1, modulo)
+                        Instr::Left => {
+                            self.memory_pointer = self.memory_pointer.saturating_sub(1);
+                            for loop_span in self.active_loop_spans.values_mut() {
+                                loop_span.record_left();
                             }
-                            MemoryBehavior::InfiniteRightwards => {
-                                self.memory_pointer = self.memory_pointer.saturating_sub(1);
-                                for loop_span in self.active_loop_spans.values_mut() {
-                                    loop_span.record_left();
-                                }
+                        }
+                        Instr::Right => {
+                            self.memory_pointer += 1;
+                            if self.memory_pointer >= self.memory.len() {
+                                self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
                             }
-                        },
-                        Instr::Right => match self.memory_behavior {
-                            MemoryBehavior::Wrapping(modulo) => {
-                                self.memory_pointer = wrapping_add(self.memory_pointer, 1, modulo)
-                            }
-                            MemoryBehavior::InfiniteRightwards => {
-                                self.memory_pointer += 1;
-                                if self.memory_pointer >= self.memory.len() {
-                                    self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
-                                }
 
-                                for loop_span in self.active_loop_spans.values_mut() {
-                                    loop_span.record_right();
-                                }
+                            for loop_span in self.active_loop_spans.values_mut() {
+                                loop_span.record_right();
                             }
-                        },
+                        }
                         Instr::StartLoop => {
                             let start_loop = self.program_pointer;
                             if self.memory[self.memory_pointer] == 0 {
@@ -213,14 +191,17 @@ impl ExecutionContext {
         if show_execution_history {
             for (idx, states) in self.loop_spans.iter() {
                 if states.len() > 10 {
-                    println!("history for instr @ {} (too long: {} entries)", idx, states.len()); 
+                    println!(
+                        "history for instr @ {} (too long: {} entries)",
+                        idx,
+                        states.len()
+                    );
                 } else {
                     println!("history for instr @ {}", idx);
                     for state in states {
                         println!("{}", state);
                     }
                 }
-                
             }
             for (idx, state) in self.active_loop_spans.iter() {
                 println!("active span for instr @ {}:\n{}", idx, state);
@@ -344,12 +325,6 @@ fn highlight_range(lower: usize, upper: usize) -> String {
         })
         .intersperse(" ")
         .collect()
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum MemoryBehavior {
-    Wrapping(usize),
-    InfiniteRightwards,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
