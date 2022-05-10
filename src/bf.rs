@@ -97,9 +97,15 @@ impl ExecutionContext {
 
                                 // Check if this span matches any prior union-span from before. If so, then we hit a loop.
                                 // If a loop is detected, then signal that a loop has occured.
-                                if self.check_loop_spans(start_loop) {
+                                if let Some((prior, current)) = self.check_loop_spans(start_loop) {
                                     self.program_pointer += 1;
-                                    return (1, ExecutionState::InfiniteLoop);
+                                    return (
+                                        1,
+                                        ExecutionState::InfiniteLoop(LoopReason::LoopSpan {
+                                            prior,
+                                            current,
+                                        }),
+                                    );
                                 }
                             } else {
                                 // Loop not taken. Reset the loop span history for this loop.
@@ -115,7 +121,7 @@ impl ExecutionContext {
                         self.program_pointer += 1;
                         (2, ExecutionState::Running)
                     } else {
-                        (2, ExecutionState::InfiniteLoop)
+                        (2, ExecutionState::InfiniteLoop(LoopReason::LoopIfNonzero))
                     }
                 }
             },
@@ -145,16 +151,20 @@ impl ExecutionContext {
         self.loop_spans.get_mut(&loop_index).unwrap().clear()
     }
 
-    fn check_loop_spans(&self, loop_index: usize) -> bool {
+    fn check_loop_spans(&self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
         let loop_spans = &self.loop_spans[&loop_index];
 
         // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
         if loop_spans.len() >= 2 {
             let current = &loop_spans[loop_spans.len() - 1];
             let prior = &loop_spans[loop_spans.len() - 2];
-            LoopSpan::equals(current, prior)
+            if LoopSpan::equals(prior, current) {
+                Some((prior.clone(), current.clone()))
+            } else {
+                None
+            }
         } else {
-            false
+            None
         }
     }
 
@@ -211,7 +221,7 @@ impl ExecutionContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LoopSpan {
+pub struct LoopSpan {
     // A snapshot of memory at the start of the loop
     memory_at_loop_start: Vec<u8>,
     // An index into the program memory denoting the position of the memory pointer at the start of the loop.
@@ -327,11 +337,30 @@ fn highlight_range(lower: usize, upper: usize) -> String {
         .collect()
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionState {
     Running,
     Halted,
-    InfiniteLoop,
+    InfiniteLoop(LoopReason),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoopReason {
+    LoopIfNonzero,
+    LoopSpan { prior: LoopSpan, current: LoopSpan },
+}
+
+impl Display for LoopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoopReason::LoopIfNonzero => write!(f, "LoopIfNonzero instruction triggered"),
+            LoopReason::LoopSpan { prior, current } => write!(
+                f,
+                "LoopSpan triggered. prior span: {} current span: {}",
+                prior, current
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -410,10 +439,16 @@ impl ExtendedInstr {
 
 impl Display for ExtendedInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExtendedInstr::BaseInstr(instr) => write!(f, "{}", instr),
-            ExtendedInstr::LoopIfNonzero => write!(f, "[]"),
-        }
+        let chara = match self {
+            ExtendedInstr::BaseInstr(Instr::Plus) => '+',
+            ExtendedInstr::BaseInstr(Instr::Minus) => '-',
+            ExtendedInstr::BaseInstr(Instr::Left) => '<',
+            ExtendedInstr::BaseInstr(Instr::Right) => '>',
+            ExtendedInstr::BaseInstr(Instr::StartLoop) => '[',
+            ExtendedInstr::BaseInstr(Instr::EndLoop) => ']',
+            ExtendedInstr::LoopIfNonzero => 'L',
+        };
+        write!(f, "{}", chara)
     }
 }
 
@@ -461,24 +496,6 @@ pub fn to_string(program: &[Instr]) -> String {
             Right => '>',
             StartLoop => '[',
             EndLoop => ']',
-        };
-        string.push(letter);
-    }
-
-    string
-}
-
-fn to_string_ext(program: &[ExtendedInstr]) -> String {
-    let mut string = String::new();
-    for &instr in program {
-        let letter: char = match instr {
-            ExtendedInstr::BaseInstr(Instr::Plus) => '+',
-            ExtendedInstr::BaseInstr(Instr::Minus) => '-',
-            ExtendedInstr::BaseInstr(Instr::Left) => '<',
-            ExtendedInstr::BaseInstr(Instr::Right) => '>',
-            ExtendedInstr::BaseInstr(Instr::StartLoop) => '[',
-            ExtendedInstr::BaseInstr(Instr::EndLoop) => ']',
-            ExtendedInstr::LoopIfNonzero => 'L',
         };
         string.push(letter);
     }
@@ -566,12 +583,22 @@ mod tests {
         assert_eq!(eval(&program, 9_999_999).unwrap(), ExecutionState::Halted);
     }
 
-    fn assert_not_halting(program: &str) {
+    fn assert_not_halting_loop_if_nonzero(program: &str) {
         let program = Program::try_from(program).unwrap();
-        assert_eq!(
+        let result = matches!(
             eval(&program, 9_999_999).unwrap(),
-            ExecutionState::InfiniteLoop
+            ExecutionState::InfiniteLoop(LoopReason::LoopIfNonzero)
         );
+        assert!(result);
+    }
+
+    fn assert_not_halting_loop_span(program: &str) {
+        let program = Program::try_from(program).unwrap();
+        let result = matches!(
+            eval(&program, 9_999_999).unwrap(),
+            ExecutionState::InfiniteLoop(LoopReason::LoopSpan { .. })
+        );
+        assert!(result);
     }
 
     #[test]
@@ -585,11 +612,18 @@ mod tests {
     }
 
     #[test]
-    fn test_non_halting() {
-        assert_not_halting("+[]");
-        assert_not_halting("+[<]");
-        assert_not_halting("+[-+]");
-        assert_not_halting("+[[[]]]");
-        assert_not_halting("+[[+]-]");
+    fn test_non_halting_loop_if_nonzero() {
+        assert_not_halting_loop_if_nonzero("+[]");
+        assert_not_halting_loop_if_nonzero("+<[]");
+        assert_not_halting_loop_if_nonzero("-[]");
+        assert_not_halting_loop_if_nonzero("-[-[+]+[]]");
+        assert_not_halting_loop_if_nonzero("+[[[]]]");
+    }
+
+    #[test]
+    fn test_non_halting_loop_span() {
+        assert_not_halting_loop_span("+[<]");
+        assert_not_halting_loop_span("+[-+]");
+        assert_not_halting_loop_span("+[[+]-]");
     }
 }

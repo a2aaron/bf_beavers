@@ -2,7 +2,7 @@
 
 use std::convert::TryFrom;
 
-use crate::bf::ExecutionState;
+use crate::bf::{ExecutionState, LoopReason};
 
 pub mod bf;
 pub mod generate;
@@ -15,17 +15,21 @@ fn step_count(program: &bf::Program, max_steps: usize) -> Option<usize> {
         total_real_steps += real_steps;
         match state {
             ExecutionState::Halted => {
-                eprintln!("HALT: {}", program);
+                eprintln!("HALT:  {}", program);
                 return Some(total_real_steps);
             }
-            ExecutionState::InfiniteLoop => {
-                eprintln!("LOOP: {}", program);
+            ExecutionState::InfiniteLoop(loop_reason) => {
+                let msg = match loop_reason {
+                    LoopReason::LoopIfNonzero => "LOOP1",
+                    LoopReason::LoopSpan { prior, current } => "LOOP2",
+                };
+                eprintln!("{}: {}", msg, program);
                 return None;
             }
             ExecutionState::Running => (),
         }
     }
-    eprintln!("TIME: {}", program);
+    eprintln!("TIME:  {}", program);
     None
 }
 
@@ -69,9 +73,9 @@ fn trace(program: &bf::Program, max_steps: usize) {
                 println!("Halted.");
                 break;
             }
-            ExecutionState::InfiniteLoop => {
+            ExecutionState::InfiniteLoop(loop_reason) => {
                 ctx.print_state(true);
-                println!("Infinite loop detected.");
+                println!("Infinite loop detected. Reason: {}", loop_reason);
                 break;
             }
         }
