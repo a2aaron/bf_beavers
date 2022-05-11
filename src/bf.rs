@@ -259,8 +259,9 @@ impl LoopSpan {
         }
     }
 
-    // Return the slice of memory that was touched by the slice.
+    // Return the slice of memory that is considered part of the loop span.
     fn memory_mask(&self) -> &[u8] {
+        // Remove trailing zeros from memory snap shot
         let first_nonzero = {
             let mut first_nonzero = self.memory_at_loop_start.len() - 1;
             for i in (0..self.memory_at_loop_start.len()).rev() {
@@ -365,7 +366,7 @@ impl Display for LoopReason {
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    original_instrs: Vec<Instr>,
+    pub original_instrs: Vec<Instr>,
     extended_instrs: Vec<ExtendedInstr>,
     loop_dict: HashMap<usize, usize>,
 }

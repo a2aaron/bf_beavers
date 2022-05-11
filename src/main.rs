@@ -1,11 +1,8 @@
-#![feature(iter_intersperse)]
-
 use std::convert::TryFrom;
 
-use crate::bf::{ExecutionState, LoopReason};
+use bf_beavers::{bf, generate};
 
-pub mod bf;
-pub mod generate;
+use crate::bf::{ExecutionState, LoopReason};
 
 fn step_count(program: &bf::Program, max_steps: usize) -> Option<usize> {
     let mut ctx = bf::ExecutionContext::new(program);
@@ -21,7 +18,7 @@ fn step_count(program: &bf::Program, max_steps: usize) -> Option<usize> {
             ExecutionState::InfiniteLoop(loop_reason) => {
                 let msg = match loop_reason {
                     LoopReason::LoopIfNonzero => "LOOP1",
-                    LoopReason::LoopSpan { prior, current } => "LOOP2",
+                    LoopReason::LoopSpan { .. } => "LOOP2",
                 };
                 eprintln!("{}: {}", msg, program);
                 return None;
