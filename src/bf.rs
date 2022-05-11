@@ -11,26 +11,17 @@ pub struct ExecutionContext {
     memory_pointer: usize,
     program: Program,
     program_pointer: usize,
-    active_loop_spans: HashMap<usize, LoopSpan>,
-    loop_spans: HashMap<usize, Vec<LoopSpan>>,
+    loop_span_history: LoopSpanHistory,
 }
 
 impl ExecutionContext {
     pub fn new(program: &Program) -> ExecutionContext {
-        let mut loop_spans = HashMap::new();
-        for (i, &instr) in program.extended_instrs.iter().enumerate() {
-            if instr == ExtendedInstr::BaseInstr(Instr::StartLoop) {
-                loop_spans.insert(i, vec![]);
-            }
-        }
-
         ExecutionContext {
             memory: vec![0; INITAL_MEMORY],
             memory_pointer: 0,
             program_pointer: 0,
             program: program.clone(),
-            loop_spans,
-            active_loop_spans: HashMap::new(),
+            loop_span_history: LoopSpanHistory::new(program),
         }
     }
 
@@ -52,9 +43,7 @@ impl ExecutionContext {
                         }
                         Instr::Left => {
                             self.memory_pointer = self.memory_pointer.saturating_sub(1);
-                            for loop_span in self.active_loop_spans.values_mut() {
-                                loop_span.record_left();
-                            }
+                            self.loop_span_history.record_left();
                         }
                         Instr::Right => {
                             self.memory_pointer += 1;
@@ -62,9 +51,7 @@ impl ExecutionContext {
                                 self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
                             }
 
-                            for loop_span in self.active_loop_spans.values_mut() {
-                                loop_span.record_right();
-                            }
+                            self.loop_span_history.record_right();
                         }
                         Instr::StartLoop => {
                             let start_loop = self.program_pointer;
@@ -77,7 +64,11 @@ impl ExecutionContext {
                                 self.program_pointer = end_loop;
                             } else {
                                 // Loop taken. Start recording a loop span.
-                                self.start_recording_loop_span(start_loop);
+                                self.loop_span_history.start_recording_loop_span(
+                                    self.memory.clone(),
+                                    self.memory_pointer,
+                                    start_loop,
+                                );
                             }
                         }
                         Instr::EndLoop => {
@@ -86,18 +77,24 @@ impl ExecutionContext {
                                 .matching_loop(self.program_pointer)
                                 .expect("missing EndLoop dict entry!");
                             // Stop recording the loop
-                            self.end_recording_loop_span(start_loop);
+                            self.loop_span_history.end_recording_loop_span(start_loop);
 
                             if self.memory[self.memory_pointer] != 0 {
                                 // Loop taken.
                                 self.program_pointer = start_loop;
 
                                 // Start a new loop-span recording
-                                self.start_recording_loop_span(start_loop);
+                                self.loop_span_history.start_recording_loop_span(
+                                    self.memory.clone(),
+                                    self.memory_pointer,
+                                    start_loop,
+                                );
 
                                 // Check if this span matches any prior union-span from before. If so, then we hit a loop.
                                 // If a loop is detected, then signal that a loop has occured.
-                                if let Some((prior, current)) = self.check_loop_spans(start_loop) {
+                                if let Some((prior, current)) =
+                                    self.loop_span_history.check_loop_spans(start_loop)
+                                {
                                     self.program_pointer += 1;
                                     return (
                                         1,
@@ -109,7 +106,7 @@ impl ExecutionContext {
                                 }
                             } else {
                                 // Loop not taken. Reset the loop span history for this loop.
-                                self.reset_loop_spans(start_loop);
+                                self.loop_span_history.reset_past_loop_spans(start_loop);
                             }
                         }
                     }
@@ -125,46 +122,6 @@ impl ExecutionContext {
                     }
                 }
             },
-        }
-    }
-
-    fn start_recording_loop_span(&mut self, loop_index: usize) {
-        assert!(!self.active_loop_spans.contains_key(&loop_index));
-        let loop_span = LoopSpan::new(self.memory.clone(), self.memory_pointer);
-
-        let old_value = self.active_loop_spans.insert(loop_index, loop_span);
-        assert!(old_value.is_none());
-    }
-
-    fn end_recording_loop_span(&mut self, loop_index: usize) {
-        assert!(self.active_loop_spans.contains_key(&loop_index));
-
-        let loop_span = self.active_loop_spans.remove(&loop_index).unwrap();
-
-        self.loop_spans
-            .get_mut(&loop_index)
-            .unwrap()
-            .push(loop_span);
-    }
-
-    fn reset_loop_spans(&mut self, loop_index: usize) {
-        self.loop_spans.get_mut(&loop_index).unwrap().clear()
-    }
-
-    fn check_loop_spans(&self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
-        let loop_spans = &self.loop_spans[&loop_index];
-
-        // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
-        if loop_spans.len() >= 2 {
-            let current = &loop_spans[loop_spans.len() - 1];
-            let prior = &loop_spans[loop_spans.len() - 2];
-            if LoopSpan::equals(prior, current) {
-                Some((prior.clone(), current.clone()))
-            } else {
-                None
-            }
-        } else {
-            None
         }
     }
 
@@ -199,7 +156,7 @@ impl ExecutionContext {
         println!("         {}", program_ptr);
 
         if show_execution_history {
-            for (idx, states) in self.loop_spans.iter() {
+            for (idx, states) in self.loop_span_history.past_loop_spans.iter() {
                 if states.len() > 10 {
                     println!(
                         "history for instr @ {} (too long: {} entries)",
@@ -213,14 +170,95 @@ impl ExecutionContext {
                     }
                 }
             }
-            for (idx, state) in self.active_loop_spans.iter() {
+            for (idx, state) in self.loop_span_history.active_loop_spans.iter() {
                 println!("active span for instr @ {}:\n{}", idx, state);
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+struct LoopSpanHistory {
+    active_loop_spans: HashMap<usize, LoopSpan>,
+    past_loop_spans: HashMap<usize, Vec<LoopSpan>>,
+}
+
+impl LoopSpanHistory {
+    fn new(program: &Program) -> LoopSpanHistory {
+        let mut past_loop_spans = HashMap::new();
+        for (i, &instr) in program.extended_instrs.iter().enumerate() {
+            if instr == ExtendedInstr::BaseInstr(Instr::StartLoop) {
+                past_loop_spans.insert(i, vec![]);
+            }
+        }
+
+        let active_loop_spans = HashMap::new();
+
+        LoopSpanHistory {
+            active_loop_spans,
+            past_loop_spans,
+        }
+    }
+
+    fn record_left(&mut self) {
+        for loop_span in self.active_loop_spans.values_mut() {
+            loop_span.record_left();
+        }
+    }
+
+    fn record_right(&mut self) {
+        for loop_span in self.active_loop_spans.values_mut() {
+            loop_span.record_right();
+        }
+    }
+
+    fn start_recording_loop_span(
+        &mut self,
+        memory: Vec<u8>,
+        starting_position: usize,
+        loop_index: usize,
+    ) {
+        assert!(!self.active_loop_spans.contains_key(&loop_index));
+        let loop_span = LoopSpan::new(memory, starting_position);
+
+        let old_value = self.active_loop_spans.insert(loop_index, loop_span);
+        assert!(old_value.is_none());
+    }
+
+    fn end_recording_loop_span(&mut self, loop_index: usize) {
+        assert!(self.active_loop_spans.contains_key(&loop_index));
+
+        let loop_span = self.active_loop_spans.remove(&loop_index).unwrap();
+
+        self.past_loop_spans
+            .get_mut(&loop_index)
+            .unwrap()
+            .push(loop_span);
+    }
+
+    fn reset_past_loop_spans(&mut self, loop_index: usize) {
+        self.past_loop_spans.get_mut(&loop_index).unwrap().clear()
+    }
+
+    fn check_loop_spans(&self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
+        let loop_spans = &self.past_loop_spans[&loop_index];
+
+        // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
+        if loop_spans.len() >= 2 {
+            let current = &loop_spans[loop_spans.len() - 1];
+            let prior = &loop_spans[loop_spans.len() - 2];
+            if prior == current {
+                Some((prior.clone(), current.clone()))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LoopSpan {
     // A snapshot of memory at the start of the loop
     memory_at_loop_start: Vec<u8>,
@@ -290,14 +328,18 @@ impl LoopSpan {
     fn displacement(&self) -> isize {
         self.current_memory_pointer as isize - self.starting_memory_pointer as isize
     }
+}
 
-    fn equals(a: &LoopSpan, b: &LoopSpan) -> bool {
-        let displacements_match = a.displacement() == b.displacement();
-        let masks_match = a.memory_mask() == b.memory_mask();
+impl PartialEq for LoopSpan {
+    fn eq(&self, other: &Self) -> bool {
+        let displacements_match = self.displacement() == other.displacement();
+        let masks_match = self.memory_mask() == other.memory_mask();
 
         displacements_match && masks_match
     }
 }
+
+impl Eq for LoopSpan {}
 
 impl Display for LoopSpan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
