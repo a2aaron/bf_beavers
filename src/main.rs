@@ -80,10 +80,10 @@ fn trace(program: &bf::Program, max_steps: usize) {
 }
 
 fn main() {
-    let max_steps = 5_000;
-    let debug = false;
+    let max_steps = 50_000;
+    let debug = true;
     if debug {
-        let program = bf::Program::try_from("+[>+]").unwrap();
+        let program = bf::Program::try_from(">>+>>>>>>>>++++<<<<<<<<[>+]").unwrap();
         println!("{:?}", program);
         trace(&program, max_steps);
         println!("{:?}", step_count(&program, max_steps));

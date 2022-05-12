@@ -155,7 +155,10 @@ mod tests {
 
     #[test]
     fn test_specific() {
-        let program = Program::try_from(">>+[<+]").unwrap();
+        let program = Program::try_from(">>>>>>>+[<+]").unwrap();
+        assert_model_matches(&program, 10_000);
+
+        let program = Program::try_from(">>+>>>>>>>>-<<<<<<<<[>+]").unwrap();
         assert_model_matches(&program, 10_000);
     }
 

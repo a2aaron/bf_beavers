@@ -331,8 +331,8 @@ impl LoopSpan {
         // zero, then don't include anything extra and just return the span as is.
         match self.displacement().cmp(&0) {
             std::cmp::Ordering::Less => &self.memory_at_loop_start[0..=max_index],
-            std::cmp::Ordering::Equal => &self.memory_at_loop_start[min_index..],
-            std::cmp::Ordering::Greater => &self.memory_at_loop_start[min_index..=max_index],
+            std::cmp::Ordering::Greater => &self.memory_at_loop_start[min_index..],
+            std::cmp::Ordering::Equal => &self.memory_at_loop_start[min_index..=max_index],
         }
     }
 
