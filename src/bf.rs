@@ -156,7 +156,7 @@ impl ExecutionContext {
         println!("         {}", program_ptr);
 
         if show_execution_history {
-            for (idx, states) in self.loop_span_history.past_loop_spans.iter() {
+            for (idx, states) in self.loop_span_history.single_loop_spans.iter() {
                 if states.len() > 10 {
                     println!(
                         "history for instr @ {} (too long: {} entries)",
@@ -177,10 +177,18 @@ impl ExecutionContext {
     }
 }
 
+//
 #[derive(Debug, Clone)]
 struct LoopSpanHistory {
+    // The list of actively recorded loop spans. A loop which execution is
+    // currently inside of has a corresponding active loop span. When the loop
+    // finishes (and is re-taken), the loop span is added to the corresponding
+    // single_loop_span list.
     active_loop_spans: HashMap<usize, LoopSpan>,
-    past_loop_spans: HashMap<usize, Vec<LoopSpan>>,
+    // List of past recordered loop spans. A given loop span list is cleared
+    // any time execution leaves the loop that the loop span list is associated
+    // with.
+    single_loop_spans: HashMap<usize, Vec<LoopSpan>>,
 }
 
 impl LoopSpanHistory {
@@ -196,7 +204,7 @@ impl LoopSpanHistory {
 
         LoopSpanHistory {
             active_loop_spans,
-            past_loop_spans,
+            single_loop_spans: past_loop_spans,
         }
     }
 
@@ -230,18 +238,18 @@ impl LoopSpanHistory {
 
         let loop_span = self.active_loop_spans.remove(&loop_index).unwrap();
 
-        self.past_loop_spans
+        self.single_loop_spans
             .get_mut(&loop_index)
             .unwrap()
             .push(loop_span);
     }
 
     fn reset_past_loop_spans(&mut self, loop_index: usize) {
-        self.past_loop_spans.get_mut(&loop_index).unwrap().clear()
+        self.single_loop_spans.get_mut(&loop_index).unwrap().clear()
     }
 
     fn check_loop_spans(&self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
-        let loop_spans = &self.past_loop_spans[&loop_index];
+        let loop_spans = &self.single_loop_spans[&loop_index];
 
         // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
         if loop_spans.len() >= 2 {
@@ -259,6 +267,9 @@ impl LoopSpanHistory {
 }
 
 #[derive(Debug, Clone)]
+/// A LoopSpan is a special snapshot of memory that represents the set of cells
+/// which could ever affect the future execution of a given loop at some point
+/// in time. See LOOP_SPAN.md for more information.
 pub struct LoopSpan {
     // A snapshot of memory at the start of the loop
     memory_at_loop_start: Vec<u8>,
@@ -357,6 +368,7 @@ impl Display for LoopSpan {
     }
 }
 
+// Transform the array of u8s to a string of hexidecimal encoded values.
 fn array_to_string(array: &[u8]) -> String {
     array
         .iter()
@@ -365,6 +377,7 @@ fn array_to_string(array: &[u8]) -> String {
         .collect()
 }
 
+// Return a string with a specific position highlighted by ^^
 fn highlight(index: usize) -> String {
     (0..=index)
         .map(|i| if index == i { "^^" } else { "  " })
@@ -372,6 +385,7 @@ fn highlight(index: usize) -> String {
         .collect()
 }
 
+// Return a string where a range of positions is highlighted by ^^----^^
 fn highlight_range(lower: usize, upper: usize) -> String {
     assert!(lower <= upper);
     (0..=upper)
@@ -389,15 +403,24 @@ fn highlight_range(lower: usize, upper: usize) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Details the current status of execution in an ExecutionContext.
 pub enum ExecutionState {
+    /// The program has not halted yet, but no infinite loop has been detected
     Running,
+    /// The program has halted.
     Halted,
+    /// The program has not halted and an infinite loop was detected, indicating
+    /// that the program will never halt.
     InfiniteLoop(LoopReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Details how the ExecutionContext detected that a given program will never
+/// halt.
 pub enum LoopReason {
+    /// A LoopIfNonZero instruction was executed, so the program cannot halt.
     LoopIfNonzero,
+    /// A loop span cycle was detected between the following LoopSpans.
     LoopSpan { prior: LoopSpan, current: LoopSpan },
 }
 
@@ -415,13 +438,19 @@ impl Display for LoopReason {
 }
 
 #[derive(Debug, Clone)]
+/// A compiled program which can be executed in an ExecutionContext.
 pub struct Program {
     pub original_instrs: Vec<Instr>,
     extended_instrs: Vec<ExtendedInstr>,
+    // A dictionary mapping start and end loop instructions to each other. The
+    // key-value pairs represent the index into extended_instrs for the
+    // corresponding start and end loops.
     loop_dict: HashMap<usize, usize>,
 }
 
 impl Program {
+    /// Create a Program from a list of instructions. If there are mismatched
+    /// braces, a CompileError is returned.
     pub fn new(instrs: &[Instr]) -> Result<Program, CompileError> {
         let extended_instrs = ExtendedInstr::new(instrs);
         let loop_dict = loop_dict(&extended_instrs)?;
@@ -443,7 +472,7 @@ impl Program {
 
 impl Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", to_string(&self.original_instrs),)
+        write!(f, "{}", Instr::to_string(&self.original_instrs),)
     }
 }
 
@@ -459,13 +488,22 @@ impl TryFrom<&str> for Program {
     }
 }
 
+/// An extended set of Brainfuck instructions. This is intended to simplify
+/// certain common Brainfuck constucts into a single conceptual instruction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum ExtendedInstr {
+    /// A base instruction that has not been transformed.
     BaseInstr(Instr),
+    /// An instruction which, when executed, causes an infinite loop if the
+    /// current memory cell is nonzero, and otherwise is a NOP. This instruction
+    /// of length 2, and represents "[]" in base Brainfuck.
     LoopIfNonzero,
 }
 
 impl ExtendedInstr {
+    /// Transform a list of base Brainfuck instructions into a list of extended
+    /// Brainfuck instructions. The following constructs are transformed:
+    /// [] -> LoopIfNonzero
     fn new(program: &[Instr]) -> Vec<ExtendedInstr> {
         let mut extended_instrs = vec![];
         let mut i = 0;
@@ -490,16 +528,10 @@ impl ExtendedInstr {
 
 impl Display for ExtendedInstr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let chara = match self {
-            ExtendedInstr::BaseInstr(Instr::Plus) => '+',
-            ExtendedInstr::BaseInstr(Instr::Minus) => '-',
-            ExtendedInstr::BaseInstr(Instr::Left) => '<',
-            ExtendedInstr::BaseInstr(Instr::Right) => '>',
-            ExtendedInstr::BaseInstr(Instr::StartLoop) => '[',
-            ExtendedInstr::BaseInstr(Instr::EndLoop) => ']',
-            ExtendedInstr::LoopIfNonzero => 'L',
-        };
-        write!(f, "{}", chara)
+        match self {
+            ExtendedInstr::BaseInstr(base_instr) => write!(f, "{}", base_instr),
+            ExtendedInstr::LoopIfNonzero => write!(f, "L"),
+        }
     }
 }
 
@@ -536,24 +568,8 @@ fn loop_dict(program: &[ExtendedInstr]) -> Result<HashMap<usize, usize>, Compile
     }
 }
 
-pub fn to_string(program: &[Instr]) -> String {
-    let mut string = String::new();
-    for &bf_char in program {
-        use Instr::*;
-        let letter: char = match bf_char {
-            Plus => '+',
-            Minus => '-',
-            Left => '<',
-            Right => '>',
-            StartLoop => '[',
-            EndLoop => ']',
-        };
-        string.push(letter);
-    }
-
-    string
-}
-
+/// The set of Brainfuck instructions. These are all of the possible
+/// instructions in a Brainfuck program, before any optimizations are applied.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Instr {
     Plus,
@@ -562,6 +578,13 @@ pub enum Instr {
     Right,
     StartLoop,
     EndLoop,
+}
+
+impl Instr {
+    // Transform a list of instructions into a human readable String.
+    pub fn to_string(program: &[Instr]) -> String {
+        program.iter().map(|instr| instr.to_string()).collect()
+    }
 }
 
 impl TryFrom<char> for Instr {
@@ -595,6 +618,8 @@ impl Display for Instr {
     }
 }
 
+/// A compile error specifiying why the given Brainfuck program could not be
+/// compiled.
 #[derive(Debug, Clone)]
 pub enum CompileError {
     UnmatchedEndLoop { index: usize },
