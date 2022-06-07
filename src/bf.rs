@@ -326,9 +326,9 @@ impl LoopSpan {
         let max_index = self.max_index.min(first_nonzero);
 
         // Now check the displacement. If the displacement is negative, then
-        // consider everything to the left of the span to be included. Otherwise
-        // include everything to the right of the span. If the displacement is
-        // zero, then don't include anything extra and just return the span as is.
+        // consider everything to the left of the touched region to be included.
+        // Otherwise include everything to the right of the touched region. If the displacement is
+        // zero, then don't include anything extra and just return the touched region as is.
         match self.displacement().cmp(&0) {
             std::cmp::Ordering::Less => &self.memory_at_loop_start[0..=max_index],
             std::cmp::Ordering::Greater => &self.memory_at_loop_start[min_index..],
