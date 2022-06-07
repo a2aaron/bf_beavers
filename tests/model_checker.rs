@@ -117,16 +117,25 @@ mod tests {
         let mut simple_ctx = SimpleExecutionContext::new(program);
 
         let mut real_state = None;
-        for _ in 1..max_steps {
+        let mut real_steps = 0;
+        for _ in 0..max_steps {
             let (_, state) = real_ctx.step();
+            real_steps += 1;
             if state != ExecutionState::Running {
                 real_state = Some(state);
                 break;
             }
         }
 
+        let max_steps = match real_state {
+            Some(ExecutionState::Halted) => real_steps,
+            Some(ExecutionState::Running) => unreachable!(),
+            Some(ExecutionState::InfiniteLoop(_)) => real_steps * 2,
+            None => max_steps,
+        };
+
         let mut simple_state = SimpleExecutionState::Running;
-        for _ in 1..max_steps {
+        for _ in 0..max_steps {
             let state = simple_ctx.step();
             if state == SimpleExecutionState::Halted {
                 simple_state = SimpleExecutionState::Halted;
@@ -137,9 +146,12 @@ mod tests {
         (real_state, simple_state)
     }
 
-    fn assert_model_matches(program: &Program, max_steps: usize) {
+    fn assert_model_matches(
+        program: &Program,
+        max_steps: usize,
+    ) -> (Option<ExecutionState>, SimpleExecutionState) {
         let (real_state, simple_state) = eval(program, max_steps);
-        match (real_state, simple_state) {
+        match (&real_state, simple_state) {
             (None, SimpleExecutionState::Running) => (),
             (Some(ExecutionState::Halted), SimpleExecutionState::Halted) => (),
             (Some(ExecutionState::InfiniteLoop(_)), SimpleExecutionState::Running) => (),
@@ -151,25 +163,54 @@ mod tests {
                 panic!();
             }
         }
+        (real_state, simple_state)
+    }
+
+    fn assert_halting(program: &Program, max_steps: usize) {
+        let (real_state, simple_state) = eval(program, max_steps);
+        if simple_state != SimpleExecutionState::Halted {
+            println!("[INVALID] Simple executor did not halt (expected to halt)!");
+        }
+
+        assert!(real_state == Some(ExecutionState::Halted));
     }
 
     #[test]
-    fn test_specific() {
+    fn test_specific_halting() {
         let program = Program::try_from(">>>>>>>+[<+]").unwrap();
-        assert_model_matches(&program, 10_000);
+        assert_halting(&program, 10_000);
 
         let program = Program::try_from(">>+>>>>>>>>-<<<<<<<<[>+]").unwrap();
-        assert_model_matches(&program, 10_000);
+        assert_halting(&program, 10_000);
+
+        let program = Program::try_from("++>---[<[-]++>+]").unwrap();
+        assert_halting(&program, 10_000);
     }
 
     #[test]
     fn test_model_checked() {
-        for (i, program) in generate::brute_force_chain(0..8).enumerate() {
-            if i % 1000 == 0 {
-                eprintln!("{}", program);
+        for length in 0..8 {
+            let mut num_halted = 0;
+            let mut num_looping = 0;
+            let mut num_unknown = 0;
+
+            for (i, program) in generate::brute_force_iterator(length).enumerate() {
+                if i % 10000 == 0 {
+                    eprintln!("{}", program);
+                }
+                let max_steps = 10_000;
+                let (real_state, _) = assert_model_matches(&program, max_steps);
+                match real_state {
+                    Some(ExecutionState::Halted) => num_halted += 1,
+                    Some(ExecutionState::InfiniteLoop(_)) => num_looping += 1,
+                    None => num_unknown += 1,
+                    Some(ExecutionState::Running) => unreachable!(),
+                }
             }
-            let max_steps = 10_000;
-            assert_model_matches(&program, max_steps)
+            println!(
+                "length: {}, halt: {}, loop: {}, unknown: {}",
+                length, num_halted, num_looping, num_unknown
+            );
         }
     }
 }
