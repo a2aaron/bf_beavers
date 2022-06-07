@@ -34,86 +34,111 @@ impl ExecutionContext {
             None => (0, ExecutionState::Halted),
             Some(instruction) => match instruction {
                 ExtendedInstr::BaseInstr(instruction) => {
+                    // First, update the loop-spans and figure out if this iteration
+                    // is definitely looping.
+                    let execution_result = match instruction {
+                        Instr::Left => {
+                            self.loop_span_history.record_left();
+                            (1, ExecutionState::Running)
+                        }
+                        Instr::Right => {
+                            self.loop_span_history.record_right();
+                            (1, ExecutionState::Running)
+                        }
+                        // StartLoop taken. Start recording a loop span.
+                        Instr::StartLoop if self.memory[self.memory_pointer] != 0 => {
+                            let start_loop = self.program_pointer;
+                            self.loop_span_history.start_recording_loop_span(
+                                self.memory.clone(),
+                                self.memory_pointer,
+                                start_loop,
+                            );
+                            (1, ExecutionState::Running)
+                        }
+                        // StartLoop not taken. (Ignored, nothing special happens for this)
+                        Instr::StartLoop => (1, ExecutionState::Running),
+                        // EndLoop taken, stop the old loop-span recording and start a new one
+                        Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
+                            let start_loop = self
+                                .program
+                                .matching_loop(self.program_pointer)
+                                .expect("missing EndLoop dict entry!");
+
+                            self.loop_span_history.end_recording_loop_span(start_loop);
+                            self.loop_span_history.start_recording_loop_span(
+                                self.memory.clone(),
+                                self.memory_pointer,
+                                start_loop,
+                            );
+
+                            // Check if this span matches any prior union-span from before. If so, then we hit a loop.
+                            // If a loop is detected, then signal that a loop has occured.
+                            if let Some((prior, current)) =
+                                self.loop_span_history.check_loop_spans(start_loop)
+                            {
+                                let inf_loop = ExecutionState::InfiniteLoop(LoopReason::LoopSpan {
+                                    prior,
+                                    current,
+                                });
+                                (1, inf_loop)
+                            } else {
+                                (1, ExecutionState::Running)
+                            }
+                        }
+                        // EndLoop not taken. Stop the old loop-span recording and reset the loop span history for this loop history.
+                        Instr::EndLoop => {
+                            let start_loop = self
+                                .program
+                                .matching_loop(self.program_pointer)
+                                .expect("missing EndLoop dict entry!");
+
+                            self.loop_span_history.end_recording_loop_span(start_loop);
+                            self.loop_span_history.reset_past_loop_spans(start_loop);
+                            (1, ExecutionState::Running)
+                        }
+                        _ => (1, ExecutionState::Running),
+                    };
+
+                    // Now actually execute the instruction
                     match instruction {
                         Instr::Plus => {
                             self.memory[self.memory_pointer] =
-                                self.memory[self.memory_pointer].wrapping_add(1)
+                                self.memory[self.memory_pointer].wrapping_add(1);
                         }
                         Instr::Minus => {
                             self.memory[self.memory_pointer] =
-                                self.memory[self.memory_pointer].wrapping_sub(1)
+                                self.memory[self.memory_pointer].wrapping_sub(1);
                         }
                         Instr::Left => {
                             self.memory_pointer = self.memory_pointer.saturating_sub(1);
-                            self.loop_span_history.record_left();
                         }
                         Instr::Right => {
                             self.memory_pointer += 1;
                             if self.memory_pointer >= self.memory.len() {
                                 self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
                             }
-
-                            self.loop_span_history.record_right();
                         }
-                        Instr::StartLoop => {
+                        // StartLoop not taken -- Jump past corresponding EndLoop
+                        Instr::StartLoop if self.memory[self.memory_pointer] == 0 => {
                             let start_loop = self.program_pointer;
-                            if self.memory[self.memory_pointer] == 0 {
-                                // Loop not taken. Don't bother with loop spans.
-                                let end_loop = self
-                                    .program
-                                    .matching_loop(start_loop)
-                                    .expect("missing StartLoop dict entry!");
-                                self.program_pointer = end_loop;
-                            } else {
-                                // Loop taken. Start recording a loop span.
-                                self.loop_span_history.start_recording_loop_span(
-                                    self.memory.clone(),
-                                    self.memory_pointer,
-                                    start_loop,
-                                );
-                            }
+                            let end_loop = self
+                                .program
+                                .matching_loop(start_loop)
+                                .expect("missing StartLoop dict entry!");
+                            self.program_pointer = end_loop;
                         }
-                        Instr::EndLoop => {
+                        // EndLoop taken -- Jump past corresponding StartLoop
+                        Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
                             let start_loop = self
                                 .program
                                 .matching_loop(self.program_pointer)
                                 .expect("missing EndLoop dict entry!");
-                            // Stop recording the loop
-                            self.loop_span_history.end_recording_loop_span(start_loop);
-
-                            if self.memory[self.memory_pointer] != 0 {
-                                // Loop taken.
-                                self.program_pointer = start_loop;
-
-                                // Start a new loop-span recording
-                                self.loop_span_history.start_recording_loop_span(
-                                    self.memory.clone(),
-                                    self.memory_pointer,
-                                    start_loop,
-                                );
-
-                                // Check if this span matches any prior union-span from before. If so, then we hit a loop.
-                                // If a loop is detected, then signal that a loop has occured.
-                                if let Some((prior, current)) =
-                                    self.loop_span_history.check_loop_spans(start_loop)
-                                {
-                                    self.program_pointer += 1;
-                                    return (
-                                        1,
-                                        ExecutionState::InfiniteLoop(LoopReason::LoopSpan {
-                                            prior,
-                                            current,
-                                        }),
-                                    );
-                                }
-                            } else {
-                                // Loop not taken. Reset the loop span history for this loop.
-                                self.loop_span_history.reset_past_loop_spans(start_loop);
-                            }
+                            self.program_pointer = start_loop;
                         }
+                        _ => (),
                     }
                     self.program_pointer += 1;
-                    (1, ExecutionState::Running)
+                    execution_result
                 }
                 ExtendedInstr::LoopIfNonzero => {
                     if self.memory[self.memory_pointer] == 0 {
@@ -228,7 +253,12 @@ impl LoopSpanHistory {
         starting_position: usize,
         loop_index: usize,
     ) {
-        assert!(!self.active_loop_spans.contains_key(&loop_index));
+        assert!(
+            !self.active_loop_spans.contains_key(&loop_index),
+            "Recording already exists at index = {} (all spans: {:#?})",
+            loop_index,
+            self.active_loop_spans
+        );
         let loop_span = LoopSpan::new(memory, starting_position);
 
         let old_value = self.active_loop_spans.insert(loop_index, loop_span);
