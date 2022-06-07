@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 
+use owo_colors::{AnsiColors, OwoColorize};
+
 const INITAL_MEMORY: usize = 1;
 const EXTEND_MEMORY_AMOUNT: usize = 1;
 
@@ -356,23 +358,58 @@ impl Display for LoopSpan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
-            "start: {} curr: {} min: {} max: {}",
+            "start: {} curr: {} min: {} max: {} (disp: {})",
             self.starting_memory_pointer,
             self.current_memory_pointer,
             self.min_index,
-            self.max_index
+            self.max_index,
+            self.displacement()
         )?;
-        writeln!(f, "{}", array_to_string(&self.memory_at_loop_start))?;
-        writeln!(f, "{}", highlight_range(self.min_index, self.max_index))?;
+
+        for i in 0..=self.max_index {
+            let bg = if i == self.starting_memory_pointer {
+                AnsiColors::BrightGreen
+            } else if self.min_index <= i && i <= self.max_index {
+                AnsiColors::BrightCyan
+            } else {
+                AnsiColors::Default
+            };
+            write!(f, "{} ", to_hex(self.memory_at_loop_start[i]).on_color(bg))?;
+        }
+        writeln!(f)?;
+
+        for i in 0..=self.max_index {
+            let text = if i == self.current_memory_pointer {
+                "^^"
+            } else if i == self.min_index {
+                "|-"
+            } else if i == self.max_index {
+                "-|"
+            } else if self.min_index < i && i < self.max_index {
+                "--"
+            } else {
+                "  "
+            };
+
+            write!(f, "{} ", text)?;
+        }
+        writeln!(f)?;
+
+        writeln!(f, "{}", array_to_string(self.memory_mask()))?;
         Ok(())
     }
 }
 
-// Transform the array of u8s to a string of hexidecimal encoded values.
+// Transform the u8 to a hexidecimal encoded string
+fn to_hex(x: u8) -> String {
+    format!("{:0>2X}", x)
+}
+
+// Transform the array of u8s to a string of hexidecimal encoded values, seperated by spaces
 fn array_to_string(array: &[u8]) -> String {
     array
         .iter()
-        .map(|x| format!("{:0>2X}", x))
+        .map(|x| to_hex(*x))
         .intersperse(" ".to_string())
         .collect()
 }
@@ -381,23 +418,6 @@ fn array_to_string(array: &[u8]) -> String {
 fn highlight(index: usize) -> String {
     (0..=index)
         .map(|i| if index == i { "^^" } else { "  " })
-        .intersperse(" ")
-        .collect()
-}
-
-// Return a string where a range of positions is highlighted by ^^----^^
-fn highlight_range(lower: usize, upper: usize) -> String {
-    assert!(lower <= upper);
-    (0..=upper)
-        .map(|index| {
-            if lower == index || index == upper {
-                "^^"
-            } else if lower < index && index < upper {
-                "--"
-            } else {
-                "  "
-            }
-        })
         .intersperse(" ")
         .collect()
 }
