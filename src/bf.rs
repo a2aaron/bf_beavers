@@ -392,7 +392,7 @@ fn highlight_range(lower: usize, upper: usize) -> String {
         .map(|index| {
             if lower == index || index == upper {
                 "^^"
-            } else if lower < index || index < upper {
+            } else if lower < index && index < upper {
                 "--"
             } else {
                 "  "
