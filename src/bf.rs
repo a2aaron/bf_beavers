@@ -7,7 +7,7 @@ use owo_colors::{AnsiColors, OwoColorize};
 const INITAL_MEMORY: usize = 1;
 const EXTEND_MEMORY_AMOUNT: usize = 1;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExecutionContext {
     memory: Vec<u8>,
     memory_pointer: usize,
