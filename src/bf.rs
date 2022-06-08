@@ -64,7 +64,8 @@ impl ExecutionContext {
                                 .matching_loop(self.program_pointer)
                                 .expect("missing EndLoop dict entry!");
 
-                            self.loop_span_history.end_recording_loop_span(start_loop);
+                            let check_span_result =
+                                self.loop_span_history.end_recording_loop_span(start_loop);
                             self.loop_span_history.start_recording_loop_span(
                                 self.memory.clone(),
                                 self.memory_pointer,
@@ -73,9 +74,7 @@ impl ExecutionContext {
 
                             // Check if this span matches any prior union-span from before. If so, then we hit a loop.
                             // If a loop is detected, then signal that a loop has occured.
-                            if let Some((prior, current)) =
-                                self.loop_span_history.check_loop_spans(start_loop)
-                            {
+                            if let Some((prior, current)) = check_span_result {
                                 let inf_loop = ExecutionState::InfiniteLoop(LoopReason::LoopSpan {
                                     prior,
                                     current,
@@ -247,6 +246,8 @@ impl LoopSpanHistory {
         }
     }
 
+    // Start recording a new loop span. There must not be another active loop span
+    // recording or else this function will panic.
     fn start_recording_loop_span(
         &mut self,
         memory: Vec<u8>,
@@ -265,36 +266,44 @@ impl LoopSpanHistory {
         assert!(old_value.is_none());
     }
 
-    fn end_recording_loop_span(&mut self, loop_index: usize) {
+    // End the active loop span recording associated with the given loop index
+    // and adds the recording to the loop_index's history.
+    // A prior loop span recording must have been started at the same loop index
+    // or else this function will panic. Returns Some if the recorded loop span
+    // matches a previously recorded loop span.
+    fn end_recording_loop_span(&mut self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
+        fn check_loop_spans(
+            prior_spans: &[LoopSpan],
+            current_span: &LoopSpan,
+        ) -> Option<(LoopSpan, LoopSpan)> {
+            // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
+            if !prior_spans.is_empty() {
+                let prior_span = &prior_spans[prior_spans.len() - 1];
+                if prior_span == current_span {
+                    Some((prior_span.clone(), current_span.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
         assert!(self.active_loop_spans.contains_key(&loop_index));
 
         let loop_span = self.active_loop_spans.remove(&loop_index).unwrap();
+
+        let loop_span_check = check_loop_spans(&self.single_loop_spans[&loop_index], &loop_span);
 
         self.single_loop_spans
             .get_mut(&loop_index)
             .unwrap()
             .push(loop_span);
+
+        loop_span_check
     }
 
     fn reset_past_loop_spans(&mut self, loop_index: usize) {
         self.single_loop_spans.get_mut(&loop_index).unwrap().clear()
-    }
-
-    fn check_loop_spans(&self, loop_index: usize) -> Option<(LoopSpan, LoopSpan)> {
-        let loop_spans = &self.single_loop_spans[&loop_index];
-
-        // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
-        if loop_spans.len() >= 2 {
-            let current = &loop_spans[loop_spans.len() - 1];
-            let prior = &loop_spans[loop_spans.len() - 2];
-            if prior == current {
-                Some((prior.clone(), current.clone()))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 }
 
