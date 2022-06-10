@@ -307,6 +307,84 @@ Loop Span #4
 
 Comparing the program's touched region along with the extension reveals that we actually have different long-term behaviors! 
 
+## Loop Span History
+For any given loop, we can build up a history of loop spans. However, over the course of execution of the program, it's possible that we enter and exit the same loop many times. For example, `"++>++++++[<[-]++>-]"` enters and exits the `[-]` loop many times over the course of its execution. We can therefore describe a _loop span history_ for some loop in the following ways:
+- A loop span history `H = (A, B, C, D...)` for loop `L` consists of a (possibly infinite) ordered list of the loop spans that are recorded for `L` over the (possibly infinite) execution of the program. 
+    - The list is ordered by the order in which the loop spans are encountered during execution
+    - Each loop span in the history has a _temporal range_ `[a, b]` denoting that the span lasts from step N to step M of execution.
+        - Since loop spans corresponding to a given loop cannot overlap, we can still order them unambigiously in the history. (In other words, if `A` has temporal range `[a, b]` and `B` has temporal range `[c, d]`, then either `a < b < c < d` or `c < d < a < b`)
+        - `A` _preceeds_ `B` if `a < b < c < d` (that is, `A` comes first in the history)
+            - We denote this as `A > B`
+        - `A` and `B` are _adjacent_ if `A > B` and no loop span `C` exists such that `A > C > B`
+            - We denote this as `A -> B`.
+        - `A` and `B` are _contiguous_ if `B` follows immediately after `A` (that is, we have that `d = c + 1`).
+            - We denote this as `A => B`.
+            - If `A` and `B` are not contiguous but are adjacent, we usually still just write `A -> B`. If we want to explicitly note that `A` and `B` are definitely not contiguous, then we write `A ≠> B` 
+        - Note that this means we can write the history using chains of `->` and `=>`. For example, we could have this history: `A -> B => C => D -> E => F`
+- Each loop span in the history is either _loop retaking_ or _loop breaking_. A loop span is loop retaking if, at the end of the loop span, the end loop instruction causes execution to jump to the start of the loop again (hence retaking the loop). A loop span is loop breaking if the end loop instruction causes execution to fall out of the loop (hence breaking the loop)
+    - If `A => B`, then `A` is loop retaking. If `A -> B` then `A` is loop breaking.
+    - The program halts (and hence `H` is finite), then the last span in the history is loop breaking.
+- A series of loop spans (`A`, `B`, `C`, ...) are _contiguous_ if it is the case that `A => B => C => ...`
+- The history is broken up into _subhistories_, which consist of contiguous series of loop spans that are maximal.
+    - maximal means that, in the contiguous series has no contigious loop spans before or after the series. That is, if `B` is the first loop span in the series, then `A ≠> B` for the adjacent preceeding loop span A (if it exists), and if `Y` is the last loop span in the series (assuming the series is finite), then `Y ≠> Z` for the adjacent subsequent loop span `Z` (if it exists).
+    - In the example history given above, the subhistories consist of the following:
+        - `A`
+        - `B => C => D`
+        - `E => F`
+    - Each loop span belongs to exactly one subhistory.
+    - The last loop span in any finite subhistory is loop breaking.
+    - The non-last loop spans in any subhistory are all loop taking.
+    - Note that a subhistory, during execution, essentially looks like all the loop spans encountered between entering a loop, retaking the loop a number of times, and then exiting the loop (if the loop does exit).
+- Hence, we can describe the history of a loop as a (possibly infinite) sequence of subhistories.
+    - Note that it is possible for there to be infinite subhistories
+    - It is also possible for the sequence of subhistories to consist of an infinite sequence of finite subhistories
+        - This occurs if the loop is contained inside a larger infinite loop that causes the loop to be executed infinitely often. For example, the `[-]` loop in `+[[-]+]` is an example..
+
+Note that, as we execute the program, the history must be finite, since it's all of the span loops we've encountered so far. The most recent subhistory, therefore, has two possibilties every time we reach the endloop instruction:
+- The loop is retaken, in which case the newly recorded loop span is part of the most recent subhistory
+- The loop is broken, in which case the newly recorded loop span is part of a new subhistory, and the most recent subhistory has no further loop spans added to it. 
+
+### History Example
+Here is an example. The program `+++>++[<[-]+++>-]` has two loops, and hence two histories (one for each loop). Here is the history for the outer loop:
+
+```
+[03 02]  A
+    ^^
+
+[03 01]  B
+    ^^
+```
+
+And here is the history for the inner loop
+```
+[03 __]  a
+ ^^
+
+[02 __]  b
+ ^^
+
+[01 __]  c
+ ^^
+
+[03 __]  a
+ ^^
+
+[02 __]  b
+ ^^
+
+[01 __]  c
+ ^^
+```
+We also associate a letter for each span.
+
+In this way, we can view loop spans as states which the program can transition between. We may write the history for the outer loop as `A => B` and the history for the inner loop as `a => b => c -> a => b => c`. Notice that the inner loop always transitions from `a` to `c`.
+
+
+### Determining Infinite Loop
+So far, we have discussed the different aspects of a loop history, but when does a history actually indicate an infinite loop?
+
+First, we can note that, we definitely find that an infinite loop has occured if the most recent history contains two loop spans which are identical. It means that the subhistory will keep repeating itself forever. We know this to be the case because 
+
 ### Putting it All Together
 We now have all the components of a Loop Span. A Loop Span for some execution of a loop consists of:
 - The touched region
@@ -350,6 +428,10 @@ fn loop_detector(program: SomeBrainfuckProgram) {
 
             // Finally, add this loop_span to the loop span history
             add loop_span to past_loop_spans[loop_id]
+        } else if instr == EndLoop and loop is not taken {
+            // We clear the history of loop we have just broken out of.
+            let loop_id = the loop we have just entered
+            clear past_loop_spans[loop_id]
         }
 
         // Finally, run the actual instruction and continue

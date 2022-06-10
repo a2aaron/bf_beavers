@@ -182,7 +182,28 @@ impl ExecutionContext {
         println!("         {}", program_ptr);
 
         if show_execution_history {
-            for (idx, states) in self.loop_span_history.single_loop_spans.iter() {
+            // Sort the active loop spans by the loop id in ascending order
+            // This allows the printed active span list to look more like a
+            // call stack, with deeper nested loops appearning below the loops
+            // they are nested in.
+            let mut active_spans = self
+                .loop_span_history
+                .active_loop_spans
+                .iter()
+                .collect::<Vec<_>>();
+            active_spans.sort_by(|(a, _), (b, _)| a.cmp(b));
+            for (idx, state) in active_spans {
+                println!("active span for instr @ {}:\n{}", idx, state);
+            }
+
+            // Do the same for the loop span history.
+            let mut span_history = self
+                .loop_span_history
+                .single_loop_spans
+                .iter()
+                .collect::<Vec<_>>();
+            span_history.sort_by(|(a, _), (b, _)| a.cmp(b));
+            for (idx, states) in span_history {
                 if states.len() > 10 {
                     println!(
                         "history for instr @ {} (too long: {} entries)",
@@ -190,20 +211,19 @@ impl ExecutionContext {
                         states.len()
                     );
                 } else {
+                    // We iterate over the states in reverse order so that
+                    // the most recent spans are at the top.
                     println!("history for instr @ {}", idx);
-                    for state in states {
+                    for state in states.iter().rev() {
                         println!("{}", state);
                     }
                 }
-            }
-            for (idx, state) in self.loop_span_history.active_loop_spans.iter() {
-                println!("active span for instr @ {}:\n{}", idx, state);
             }
         }
     }
 }
 
-//
+// TODO: Use prior subhistories. This currently only checks the most recent subhistory.
 #[derive(Debug, Clone)]
 struct LoopSpanHistory {
     // The list of actively recorded loop spans. A loop which execution is
@@ -276,17 +296,13 @@ impl LoopSpanHistory {
             prior_spans: &[LoopSpan],
             current_span: &LoopSpan,
         ) -> Option<(LoopSpan, LoopSpan)> {
-            // TODO: Add unioning of prior spans. This currently only detects 1-periodic loops.
-            if !prior_spans.is_empty() {
-                let prior_span = &prior_spans[prior_spans.len() - 1];
-                if prior_span == current_span {
-                    Some((prior_span.clone(), current_span.clone()))
+            prior_spans.iter().find_map(|span| {
+                if span == current_span {
+                    Some((span.clone(), current_span.clone()))
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            })
         }
         assert!(self.active_loop_spans.contains_key(&loop_index));
 
@@ -405,15 +421,19 @@ impl Display for LoopSpan {
             self.displacement()
         )?;
 
-        for i in 0..=self.max_index {
-            let bg = if i == self.starting_memory_pointer {
-                AnsiColors::BrightGreen
+        for i in 0..self.memory_at_loop_start.len() {
+            let (fg, bg) = if i == self.starting_memory_pointer {
+                (AnsiColors::Red, AnsiColors::BrightCyan)
             } else if self.min_index <= i && i <= self.max_index {
-                AnsiColors::BrightCyan
+                (AnsiColors::Default, AnsiColors::BrightCyan)
             } else {
-                AnsiColors::Default
+                (AnsiColors::BrightBlack, AnsiColors::Default)
             };
-            write!(f, "{} ", to_hex(self.memory_at_loop_start[i]).on_color(bg))?;
+            write!(
+                f,
+                "{} ",
+                to_hex(self.memory_at_loop_start[i]).color(fg).on_color(bg)
+            )?;
         }
         writeln!(f)?;
 
@@ -433,8 +453,6 @@ impl Display for LoopSpan {
             write!(f, "{} ", text)?;
         }
         writeln!(f)?;
-
-        writeln!(f, "{}", array_to_string(self.memory_mask()))?;
         Ok(())
     }
 }
