@@ -1,6 +1,9 @@
 #![feature(let_chains)]
 
-use std::{convert::TryFrom, io::stdout};
+use std::{
+    convert::TryFrom,
+    io::{stdout, Write},
+};
 
 use clap::Parser;
 use crossterm::{
@@ -35,14 +38,25 @@ fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionState, Optio
     (ExecutionState::Running, None)
 }
 
-fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> (Vec<bf::Program>, usize) {
+struct BusyBeaverResults {
+    best_programs: Vec<bf::Program>,
+    best_steps: usize,
+    unknown_programs: Vec<bf::Program>,
+    num_halted: usize,
+    num_looping: usize,
+    lexiographic_size: usize,
+}
+
+fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> BusyBeaverResults {
     let mut best_programs = vec![];
     let mut best_steps = 0;
+
+    let mut unknown_programs = vec![];
+
     let programs = generate::brute_force_iterator(length);
 
     let mut num_halted = 0;
     let mut num_looping = 0;
-    let mut num_unknown = 0;
 
     for (i, program) in programs.enumerate() {
         let (state, step_count) = step_count(&program, max_steps);
@@ -58,7 +72,7 @@ fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> (Vec<bf::P
         }
 
         match state {
-            ExecutionState::Running => num_unknown += 1,
+            ExecutionState::Running => unknown_programs.push(program.clone()),
             ExecutionState::Halted => num_halted += 1,
             ExecutionState::InfiniteLoop(_) => num_looping += 1,
         }
@@ -76,17 +90,14 @@ fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> (Vec<bf::P
         }
     }
 
-    let total = num_halted + num_looping + num_unknown;
-    println!(
-        "halted/looping/unknown: {} + {} + {} = {}",
-        num_halted, num_looping, num_unknown, total
-    );
-    println!(
-        "generation ratio = {}/{}",
-        total,
-        generate::lexiographic_order(length).count(),
-    );
-    (best_programs, best_steps)
+    BusyBeaverResults {
+        best_programs,
+        best_steps,
+        unknown_programs,
+        num_halted,
+        num_looping,
+        lexiographic_size: generate::lexiographic_order(length).count(),
+    }
 }
 
 fn visualizer(program: bf::Program) {
@@ -193,16 +204,39 @@ fn main() {
         }
     } else {
         for i in 0..=args.max_length {
-            println!("---");
-            let (programs, steps) = beaver(i, args.max_steps, args.print_every);
+            let mut f = std::fs::File::create(format!("length_{}.txt", i)).unwrap();
+            let results = beaver(i, args.max_steps, args.print_every);
 
-            println!(
-            "Best Programs for Beaver (length = {}, steps = {} or best runs for longer than {})",
-            i, steps, args.max_steps
-        );
-            for program in programs {
-                println!("{}", program);
+            writeln!(f,
+                "Best Busy Beavers for Length {}\nTotal steps: {} (or best runs for longer than {} steps)",
+                i, results.best_steps, args.max_steps
+            ).unwrap();
+
+            for program in results.best_programs {
+                writeln!(f, "{}", program).unwrap();
             }
+
+            writeln!(
+                f,
+                "Unknown programs (did not halt after {} steps)",
+                args.max_steps
+            )
+            .unwrap();
+
+            for program in &results.unknown_programs {
+                writeln!(f, "{}", program).unwrap();
+            }
+            let total = results.num_halted + results.num_looping + results.unknown_programs.len();
+            writeln!(
+                f,
+                "halted/looping/unknown = {} + {} + {} = {}",
+                results.num_halted,
+                results.num_looping,
+                results.unknown_programs.len(),
+                total
+            )
+            .unwrap();
+            writeln!(f, "L + ratio: {}/{}", total, results.lexiographic_size).unwrap();
         }
     }
 }

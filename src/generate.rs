@@ -41,12 +41,10 @@ pub fn lexiographic_order(length: usize) -> impl Iterator<Item = Vec<Instr>> {
         }
     }
 
-    let starting_program = if length == 0 {
-        None
-    } else {
-        Some(vec![Instr::Plus; length])
-    };
-    successors(starting_program, |this_program| next_program(this_program))
+    let starting_program = vec![Instr::Plus; length];
+    successors(Some(starting_program), |this_program| {
+        next_program(this_program)
+    })
 }
 
 // enum Node {
