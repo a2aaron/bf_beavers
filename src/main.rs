@@ -96,8 +96,9 @@ fn visualizer(program: bf::Program) {
 
     let (mut cols, _) = crossterm::terminal::size().unwrap();
     crossterm::execute! { stdout(), EnterAlternateScreen }.unwrap();
-
+    
     loop {
+        crossterm::terminal::enable_raw_mode().unwrap();
         match crossterm::event::read().unwrap() {
             Event::Key(event) => match event.code {
                 KeyCode::Left | KeyCode::Char('a') => curr_step = curr_step.saturating_sub(1),
@@ -108,6 +109,7 @@ fn visualizer(program: bf::Program) {
             Event::Resize(new_cols, _) => cols = new_cols,
             _ => (),
         }
+        crossterm::terminal::disable_raw_mode().unwrap();
 
         while curr_step >= history.len() {
             let step_result = curr_exec.step();
@@ -133,6 +135,7 @@ fn visualizer(program: bf::Program) {
         exe_ctx.print_state(true);
     }
     stdout().execute(LeaveAlternateScreen).unwrap();
+    
 }
 
 /// Simple program to greet a person
@@ -140,7 +143,7 @@ fn visualizer(program: bf::Program) {
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// Interactive mode, with a BF program to visualize
-    #[clap(short, long, name = "BF PROGRAM")]
+    #[clap(short, long, name = "BF PROGRAM", allow_hyphen_values = true)]
     interactive: Option<String>,
     #[clap(long, default_value_t = 50_000)]
     max_steps: usize,
