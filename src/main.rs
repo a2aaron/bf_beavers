@@ -1,9 +1,11 @@
+#![feature(let_chains)]
+
 use std::{convert::TryFrom, io::stdout};
 
 use clap::Parser;
 use crossterm::{
     cursor,
-    event::{Event, KeyCode},
+    event::{Event, KeyCode, KeyModifiers},
     style::Stylize,
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
@@ -88,38 +90,66 @@ fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> (Vec<bf::P
 }
 
 fn visualizer(program: bf::Program) {
-    let mut curr_exec = bf::ExecutionContext::new(&program);
+    let mut lastest_exec = bf::ExecutionContext::new(&program);
 
-    let mut history = vec![((0, ExecutionState::Running), curr_exec.clone())];
+    let mut history = vec![((0, ExecutionState::Running), lastest_exec.clone())];
 
     let mut curr_step = 0_usize;
 
     let (mut cols, _) = crossterm::terminal::size().unwrap();
     crossterm::execute! { stdout(), EnterAlternateScreen }.unwrap();
-    
-    loop {
+
+    'outer: loop {
         crossterm::terminal::enable_raw_mode().unwrap();
-        match crossterm::event::read().unwrap() {
-            Event::Key(event) => match event.code {
-                KeyCode::Left | KeyCode::Char('a') => curr_step = curr_step.saturating_sub(1),
-                KeyCode::Right | KeyCode::Char('d') => curr_step += 1,
-                KeyCode::Esc | KeyCode::Char('q') => break,
-                _ => (),
-            },
+        let event = crossterm::event::read().unwrap();
+        crossterm::terminal::disable_raw_mode().unwrap();
+
+        match event {
+            Event::Key(event) => {
+                // If shift is held, jump to the end/start of this loop.
+                let curr_exec = &history[curr_step].1;
+                let corresponding_loop = if event.modifiers.contains(KeyModifiers::SHIFT) {
+                    curr_exec.current_loop_bounds()
+                } else {
+                    None
+                };
+
+                loop {
+                    match event.code {
+                        KeyCode::Left | KeyCode::Char('a') => {
+                            curr_step = curr_step.saturating_sub(1);
+                        }
+                        KeyCode::Right | KeyCode::Char('d') => {
+                            curr_step += 1;
+
+                            while dbg!(curr_step >= history.len()) {
+                                let step_result = lastest_exec.step();
+                                history.push((step_result, lastest_exec.clone()));
+                                if history.len() >= 1_000_000 {
+                                    panic!("Too much history!");
+                                }
+                            }
+                        }
+                        KeyCode::Esc | KeyCode::Char('q') => break 'outer,
+                        _ => (),
+                    }
+
+                    let curr_exec = &history[curr_step].1;
+                    if let Some((start, end)) = corresponding_loop && start <= curr_exec.program_pointer() && curr_exec.program_pointer() < end {
+                        continue;
+                    } else {
+                         break;
+                    }
+                }
+            }
             Event::Resize(new_cols, _) => cols = new_cols,
             _ => (),
         }
-        crossterm::terminal::disable_raw_mode().unwrap();
-
-        while curr_step >= history.len() {
-            let step_result = curr_exec.step();
-            history.push((step_result, curr_exec.clone()));
-        }
-
-        let ((_, state), exe_ctx) = &history[curr_step];
 
         crossterm::execute! { stdout(), cursor::MoveTo(0,0) }.unwrap();
         crossterm::execute! { stdout(), Clear(ClearType::All) }.unwrap();
+
+        let ((_, state), exe_ctx) = &history[curr_step];
 
         let displayed_state = crossterm::style::style(format!("{:?}", state));
         let displayed_state = match state {
@@ -135,10 +165,8 @@ fn visualizer(program: bf::Program) {
         exe_ctx.print_state(true);
     }
     stdout().execute(LeaveAlternateScreen).unwrap();
-    
 }
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {

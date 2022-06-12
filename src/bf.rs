@@ -151,6 +151,33 @@ impl ExecutionContext {
         }
     }
 
+    /// Returns the program indicies of the StartLoop and EndLoop instructions of
+    /// the innermost loop that program pointer is currently inside. If execution
+    /// is not in any loops, then this returns None.
+    pub fn current_loop_bounds(&self) -> Option<(usize, usize)> {
+        let mut best = None;
+        for (&start, &end) in &self.program.loop_dict {
+            // The loop dict contains both directions of the loop mapping.
+            // (ie: it maps both from [ to ] and from ] to [)
+            let start = start.min(end);
+            let end = end.max(start);
+            if start <= self.program_pointer && self.program_pointer <= end {
+                if let Some((best_start, best_end)) = best {
+                    if best_start < start && end < best_end {
+                        best = Some((start, end));
+                    }
+                } else {
+                    best = Some((start, end));
+                }
+            }
+        }
+        best
+    }
+
+    pub fn program_pointer(&self) -> usize {
+        self.program_pointer
+    }
+
     pub fn print_state(&self, show_execution_history: bool) {
         let memory = array_to_string(&self.memory);
         let memory_pointer = highlight(self.memory_pointer);
