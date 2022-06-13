@@ -1,3 +1,5 @@
 /target
 out.txt
 length*.txt
+flamegraph.svg
+.vscode
