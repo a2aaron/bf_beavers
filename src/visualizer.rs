@@ -100,7 +100,7 @@ pub fn run(program: &Program, starting_step: usize) {
                 }
 
                 let curr_exec = &history.get(curr_step).1;
-                if let Some((start, end)) = corresponding_loop && start <= curr_exec.program_pointer() && curr_exec.program_pointer() < end {
+                if let Some((start, end)) = corresponding_loop && (start..end).contains(&curr_exec.program_pointer()) {
                     continue;
                 } else {
                      break;
