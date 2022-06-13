@@ -1,4 +1,5 @@
 #![feature(iter_intersperse)]
+#![feature(entry_insert)]
 #![feature(let_chains)]
 
 pub mod bf;

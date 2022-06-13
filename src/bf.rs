@@ -27,6 +27,7 @@ impl ExecutionContext {
         }
     }
 
+    /// Returns number of actual steps run and execution state of the program.
     pub fn step(&mut self) -> (usize, ExecutionState) {
         let instruction = self.program.get(self.program_pointer);
 

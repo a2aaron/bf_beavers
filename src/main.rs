@@ -1,5 +1,3 @@
-#![feature(let_chains)]
-
 use std::{convert::TryFrom, io::Write};
 
 use clap::Parser;

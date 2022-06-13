@@ -1,4 +1,8 @@
-use std::io::stdout;
+use std::{
+    collections::{hash_map, HashMap},
+    convert::TryInto,
+    io::stdout,
+};
 
 use crossterm::{
     cursor,
@@ -11,26 +15,37 @@ use crossterm::{
 use crate::bf::{ExecutionContext, ExecutionState, Program};
 
 struct History {
-    history: Vec<((usize, ExecutionState), ExecutionContext)>,
-    latest_exec: ExecutionContext,
+    history: HashMap<usize, [((usize, ExecutionState), ExecutionContext); 1024]>,
+    program: Program,
 }
 
 impl History {
     fn new(program: &Program) -> History {
-        let latest_exec = ExecutionContext::new(program);
         History {
-            history: vec![((0, ExecutionState::Running), latest_exec.clone())],
-            latest_exec,
+            history: HashMap::new(),
+            program: program.clone(),
         }
     }
 
-    fn get(&mut self, step: usize) -> &((usize, ExecutionState), ExecutionContext) {
-        while step >= self.history.len() {
-            let step_result = self.latest_exec.step();
-            self.history.push((step_result, self.latest_exec.clone()));
-        }
+    fn get(&mut self, step: usize) -> ((usize, ExecutionState), ExecutionContext) {
+        let nearest_gradiation = step / 1024;
+        let entry = match self.history.entry(nearest_gradiation) {
+            hash_map::Entry::Occupied(entry) => entry,
+            hash_map::Entry::Vacant(entry) => {
+                let mut exec_ctx = ExecutionContext::new(&self.program);
+                for _ in 0..nearest_gradiation * 1024 {
+                    exec_ctx.step();
+                }
+                let mut array = Vec::with_capacity(1024);
+                for _ in 0..1024 {
+                    let state = exec_ctx.step();
+                    array.push((state, exec_ctx.clone()))
+                }
 
-        &self.history[step]
+                entry.insert_entry(array.try_into().unwrap())
+            }
+        };
+        entry.get()[step - nearest_gradiation * 1024].clone()
     }
 }
 
@@ -56,7 +71,7 @@ pub fn run(program: &Program, starting_step: usize) {
     let mut curr_step = starting_step;
 
     crossterm::execute! { stdout(), EnterAlternateScreen }.unwrap();
-    print_state(history.get(curr_step), curr_step);
+    print_state(&history.get(curr_step), curr_step);
 
     'outer: loop {
         crossterm::terminal::enable_raw_mode().unwrap();
