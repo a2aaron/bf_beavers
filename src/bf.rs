@@ -395,16 +395,11 @@ impl LoopSpan {
     // Return the slice of memory that is considered part of the loop span.
     fn memory_mask(&self) -> &[u8] {
         // Remove trailing zeros from memory snap shot
-        let first_nonzero = {
-            let mut first_nonzero = self.memory_at_loop_start.len() - 1;
-            for i in (0..self.memory_at_loop_start.len()).rev() {
-                if self.memory_at_loop_start[i] != 0 {
-                    first_nonzero = i;
-                    break;
-                }
-            }
-            first_nonzero
-        };
+        let first_nonzero = self
+            .memory_at_loop_start
+            .iter()
+            .rposition(|&x| x != 0)
+            .unwrap_or(0);
 
         let min_index = self.min_index.min(first_nonzero);
         let max_index = self.max_index.min(first_nonzero);
