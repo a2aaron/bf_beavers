@@ -3,7 +3,7 @@ mod tests {
     use std::{collections::HashMap, convert::TryFrom};
 
     use bf_beavers::{
-        bf::{self, CompileError, ExecutionContext, ExecutionState, Instr, Program},
+        bf::{self, CompileError, ExecutionContext, ExecutionStatus, Instr, Program},
         generate,
     };
 
@@ -112,7 +112,10 @@ mod tests {
         }
     }
 
-    fn eval(program: &Program, max_steps: usize) -> (Option<ExecutionState>, SimpleExecutionState) {
+    fn eval(
+        program: &Program,
+        max_steps: usize,
+    ) -> (Option<ExecutionStatus>, SimpleExecutionState) {
         let mut real_ctx = ExecutionContext::new(program);
         let mut simple_ctx = SimpleExecutionContext::new(program);
 
@@ -121,16 +124,16 @@ mod tests {
         for _ in 0..max_steps {
             let (_, state) = real_ctx.step();
             real_steps += 1;
-            if state != ExecutionState::Running {
+            if state != ExecutionStatus::Running {
                 real_state = Some(state);
                 break;
             }
         }
 
         let max_steps = match real_state {
-            Some(ExecutionState::Halted) => real_steps,
-            Some(ExecutionState::Running) => unreachable!(),
-            Some(ExecutionState::InfiniteLoop(_)) => real_steps * 2,
+            Some(ExecutionStatus::Halted) => real_steps,
+            Some(ExecutionStatus::Running) => unreachable!(),
+            Some(ExecutionStatus::InfiniteLoop(_)) => real_steps * 2,
             None => max_steps,
         };
 
@@ -149,12 +152,12 @@ mod tests {
     fn assert_model_matches(
         program: &Program,
         max_steps: usize,
-    ) -> (Option<ExecutionState>, SimpleExecutionState) {
+    ) -> (Option<ExecutionStatus>, SimpleExecutionState) {
         let (real_state, simple_state) = eval(program, max_steps);
         match (&real_state, simple_state) {
             (None, SimpleExecutionState::Running) => (),
-            (Some(ExecutionState::Halted), SimpleExecutionState::Halted) => (),
-            (Some(ExecutionState::InfiniteLoop(_)), SimpleExecutionState::Running) => (),
+            (Some(ExecutionStatus::Halted), SimpleExecutionState::Halted) => (),
+            (Some(ExecutionStatus::InfiniteLoop(_)), SimpleExecutionState::Running) => (),
             (real_state, simple_state) => {
                 println!(
                     "Mismatch for program {}\n(Real: {:#?}, Simple: {:#?})",
@@ -172,7 +175,7 @@ mod tests {
             println!("[INVALID] Simple executor did not halt (expected to halt)!");
         }
 
-        assert!(real_state == Some(ExecutionState::Halted));
+        assert!(real_state == Some(ExecutionStatus::Halted));
     }
 
     #[test]
@@ -201,10 +204,10 @@ mod tests {
                 let max_steps = 10_000;
                 let (real_state, _) = assert_model_matches(&program, max_steps);
                 match real_state {
-                    Some(ExecutionState::Halted) => num_halted += 1,
-                    Some(ExecutionState::InfiniteLoop(_)) => num_looping += 1,
+                    Some(ExecutionStatus::Halted) => num_halted += 1,
+                    Some(ExecutionStatus::InfiniteLoop(_)) => num_looping += 1,
                     None => num_unknown += 1,
-                    Some(ExecutionState::Running) => unreachable!(),
+                    Some(ExecutionStatus::Running) => unreachable!(),
                 }
             }
             println!(

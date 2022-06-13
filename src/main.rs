@@ -7,27 +7,27 @@ use rayon::prelude::*;
 use clap::Parser;
 
 use bf_beavers::{
-    bf::{self, ExecutionState},
+    bf::{self, ExecutionStatus},
     generate, visualizer,
 };
 
-fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionState, Option<usize>, usize) {
+fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionStatus, Option<usize>, usize) {
     let mut ctx = bf::ExecutionContext::new(program);
     let mut total_real_steps = 0;
     for _ in 1..max_steps {
         let (real_steps, state) = ctx.step();
         total_real_steps += real_steps;
         match state {
-            ExecutionState::Halted => {
+            ExecutionStatus::Halted => {
                 return (state, Some(total_real_steps), ctx.tape_length());
             }
-            ExecutionState::InfiniteLoop(_) => {
+            ExecutionStatus::InfiniteLoop(_) => {
                 return (state, Some(total_real_steps), ctx.tape_length());
             }
-            ExecutionState::Running => (),
+            ExecutionStatus::Running => (),
         }
     }
-    (ExecutionState::Running, None, ctx.tape_length())
+    (ExecutionStatus::Running, None, ctx.tape_length())
 }
 
 struct BusyBeaverResults {
@@ -55,7 +55,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
         .map(|(_, program)| {
             let (state, step, max_tape_length) = step_count(&program, max_steps);
             match state {
-                ExecutionState::Running => BusyBeaverResults {
+                ExecutionStatus::Running => BusyBeaverResults {
                     best_programs: vec![],
                     best_steps: 0,
                     max_tape_length,
@@ -64,7 +64,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     num_looping: 0,
                     lexiographic_size,
                 },
-                ExecutionState::Halted => BusyBeaverResults {
+                ExecutionStatus::Halted => BusyBeaverResults {
                     best_programs: vec![program],
                     best_steps: step.unwrap(),
                     max_tape_length,
@@ -73,7 +73,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     num_looping: 0,
                     lexiographic_size,
                 },
-                ExecutionState::InfiniteLoop(_) => BusyBeaverResults {
+                ExecutionStatus::InfiniteLoop(_) => BusyBeaverResults {
                     best_programs: vec![],
                     best_steps: 0,
                     max_tape_length,
@@ -147,11 +147,11 @@ fn main() {
             Ok(program) => {
                 let (state, steps, _) = step_count(&program, args.max_steps);
                 match state {
-                    ExecutionState::Running => {
+                    ExecutionStatus::Running => {
                         println!("Timed out (runs longer than {} steps)", args.max_steps)
                     }
-                    ExecutionState::Halted => println!("Halts in {} steps", steps.unwrap()),
-                    ExecutionState::InfiniteLoop(reason) => {
+                    ExecutionStatus::Halted => println!("Halts in {} steps", steps.unwrap()),
+                    ExecutionStatus::InfiniteLoop(reason) => {
                         println!(
                             "Does not halt (reason: {:#?}, at step {})",
                             reason,

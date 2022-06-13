@@ -12,10 +12,10 @@ use crossterm::{
     ExecutableCommand,
 };
 
-use crate::bf::{ExecutionContext, ExecutionState, Program};
+use crate::bf::{ExecutionContext, ExecutionStatus, Program};
 
 struct History {
-    history: HashMap<usize, [((usize, ExecutionState), ExecutionContext); 1024]>,
+    history: HashMap<usize, [((usize, ExecutionStatus), ExecutionContext); 1024]>,
     program: Program,
 }
 
@@ -27,7 +27,7 @@ impl History {
         }
     }
 
-    fn get(&mut self, step: usize) -> ((usize, ExecutionState), ExecutionContext) {
+    fn get(&mut self, step: usize) -> ((usize, ExecutionStatus), ExecutionContext) {
         let nearest_gradiation = step / 1024;
         let entry = match self.history.entry(nearest_gradiation) {
             hash_map::Entry::Occupied(entry) => entry,
@@ -37,7 +37,7 @@ impl History {
                     exec_ctx.step();
                 }
                 let mut array = Vec::with_capacity(1024);
-                array.push(((1, ExecutionState::Running), exec_ctx.clone()));
+                array.push(((1, ExecutionStatus::Running), exec_ctx.clone()));
                 for _ in 0..1023 {
                     let state = exec_ctx.step();
                     array.push((state, exec_ctx.clone()))
@@ -52,7 +52,7 @@ impl History {
 
 pub fn run(program: &Program, starting_step: usize) {
     fn print_state(
-        ((_, state), exe_ctx): &((usize, ExecutionState), ExecutionContext),
+        ((_, state), exe_ctx): &((usize, ExecutionStatus), ExecutionContext),
         curr_step: usize,
     ) {
         crossterm::execute! { stdout(), cursor::MoveTo(0,0) }.unwrap();
@@ -60,9 +60,9 @@ pub fn run(program: &Program, starting_step: usize) {
 
         let displayed_state = crossterm::style::style(format!("{:?}", state));
         let displayed_state = match state {
-            ExecutionState::Running => displayed_state,
-            ExecutionState::Halted => displayed_state.on_red(),
-            ExecutionState::InfiniteLoop(_) => displayed_state.on_cyan(),
+            ExecutionStatus::Running => displayed_state,
+            ExecutionStatus::Halted => displayed_state.on_red(),
+            ExecutionStatus::InfiniteLoop(_) => displayed_state.on_cyan(),
         };
         println!("Steps: {}, State: {}", curr_step, displayed_state);
 

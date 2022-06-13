@@ -28,11 +28,11 @@ impl ExecutionContext {
     }
 
     /// Returns number of actual steps run and execution state of the program.
-    pub fn step(&mut self) -> (usize, ExecutionState) {
+    pub fn step(&mut self) -> (usize, ExecutionStatus) {
         let instruction = self.program.get(self.program_pointer);
 
         match instruction {
-            None => (0, ExecutionState::Halted),
+            None => (0, ExecutionStatus::Halted),
             Some(instruction) => match instruction {
                 ExtendedInstr::BaseInstr(instruction) => {
                     // First, update the loop-spans and figure out if this iteration
@@ -40,11 +40,11 @@ impl ExecutionContext {
                     let execution_result = match instruction {
                         Instr::Left => {
                             self.loop_span_history.record_left();
-                            (1, ExecutionState::Running)
+                            (1, ExecutionStatus::Running)
                         }
                         Instr::Right => {
                             self.loop_span_history.record_right();
-                            (1, ExecutionState::Running)
+                            (1, ExecutionStatus::Running)
                         }
                         // StartLoop taken. Start recording a loop span.
                         Instr::StartLoop if self.memory[self.memory_pointer] != 0 => {
@@ -54,10 +54,10 @@ impl ExecutionContext {
                                 self.memory_pointer,
                                 start_loop,
                             );
-                            (1, ExecutionState::Running)
+                            (1, ExecutionStatus::Running)
                         }
                         // StartLoop not taken. (Ignored, nothing special happens for this)
-                        Instr::StartLoop => (1, ExecutionState::Running),
+                        Instr::StartLoop => (1, ExecutionStatus::Running),
                         // EndLoop taken, stop the old loop-span recording and start a new one
                         Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
                             let start_loop = self
@@ -76,13 +76,14 @@ impl ExecutionContext {
                             // Check if this span matches any prior union-span from before. If so, then we hit a loop.
                             // If a loop is detected, then signal that a loop has occured.
                             if let Some((prior, current)) = check_span_result {
-                                let inf_loop = ExecutionState::InfiniteLoop(LoopReason::LoopSpan {
-                                    prior,
-                                    current,
-                                });
+                                let inf_loop =
+                                    ExecutionStatus::InfiniteLoop(LoopReason::LoopSpan {
+                                        prior,
+                                        current,
+                                    });
                                 (1, inf_loop)
                             } else {
-                                (1, ExecutionState::Running)
+                                (1, ExecutionStatus::Running)
                             }
                         }
                         // EndLoop not taken. Stop the old loop-span recording and reset the loop span history for this loop history.
@@ -94,9 +95,9 @@ impl ExecutionContext {
 
                             self.loop_span_history.end_recording_loop_span(start_loop);
                             self.loop_span_history.reset_past_loop_spans(start_loop);
-                            (1, ExecutionState::Running)
+                            (1, ExecutionStatus::Running)
                         }
-                        _ => (1, ExecutionState::Running),
+                        _ => (1, ExecutionStatus::Running),
                     };
 
                     // Now actually execute the instruction
@@ -143,9 +144,9 @@ impl ExecutionContext {
                 ExtendedInstr::LoopIfNonzero => {
                     if self.memory[self.memory_pointer] == 0 {
                         self.program_pointer += 1;
-                        (2, ExecutionState::Running)
+                        (2, ExecutionStatus::Running)
                     } else {
-                        (2, ExecutionState::InfiniteLoop(LoopReason::LoopIfNonzero))
+                        (2, ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero))
                     }
                 }
             },
@@ -508,7 +509,7 @@ fn highlight(index: usize) -> String {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Details the current status of execution in an ExecutionContext.
-pub enum ExecutionState {
+pub enum ExecutionStatus {
     /// The program has not halted yet, but no infinite loop has been detected
     Running,
     /// The program has halted.
@@ -747,11 +748,11 @@ impl Display for CompileError {
 mod tests {
     use super::*;
 
-    fn eval(program: &Program, max_steps: usize) -> Option<ExecutionState> {
+    fn eval(program: &Program, max_steps: usize) -> Option<ExecutionStatus> {
         let mut ctx = ExecutionContext::new(program);
         for _ in 1..max_steps {
             let (_, state) = ctx.step();
-            if state != ExecutionState::Running {
+            if state != ExecutionStatus::Running {
                 return Some(state);
             }
         }
@@ -760,14 +761,14 @@ mod tests {
 
     fn assert_halting(program: &str) {
         let program = Program::try_from(program).unwrap();
-        assert_eq!(eval(&program, 9_999_999).unwrap(), ExecutionState::Halted);
+        assert_eq!(eval(&program, 9_999_999).unwrap(), ExecutionStatus::Halted);
     }
 
     fn assert_not_halting_loop_if_nonzero(program: &str) {
         let program = Program::try_from(program).unwrap();
         let result = matches!(
             eval(&program, 9_999_999).unwrap(),
-            ExecutionState::InfiniteLoop(LoopReason::LoopIfNonzero)
+            ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero)
         );
         assert!(result);
     }
@@ -776,7 +777,7 @@ mod tests {
         let program = Program::try_from(program).unwrap();
         let result = matches!(
             eval(&program, 9_999_999).unwrap(),
-            ExecutionState::InfiniteLoop(LoopReason::LoopSpan { .. })
+            ExecutionStatus::InfiniteLoop(LoopReason::LoopSpan { .. })
         );
         assert!(result);
     }
