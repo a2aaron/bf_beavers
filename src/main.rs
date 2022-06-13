@@ -202,7 +202,27 @@ struct Args {
 }
 fn main() {
     let args = Args::parse();
-    if let Some(program) = args.interactive {
+    if let Some(program) = args.run {
+        match bf::Program::try_from(program.as_str()) {
+            Ok(program) => {
+                let (state, steps) = step_count(&program, args.max_steps);
+                match state {
+                    ExecutionState::Running => {
+                        println!("Timed out (runs longer than {} steps)", args.max_steps)
+                    }
+                    ExecutionState::Halted => println!("Halts in {} steps", steps.unwrap()),
+                    ExecutionState::InfiniteLoop(reason) => {
+                        println!(
+                            "Does not halt (reason: {:#?}, at step {})",
+                            reason,
+                            steps.unwrap()
+                        )
+                    }
+                }
+            }
+            Err(err) => println!("Cannot compile {} (reason: {})", program, err),
+        }
+    } else if let Some(program) = args.interactive {
         match bf::Program::try_from(program.as_str()) {
             Ok(program) => {
                 println!("Visualizing {}", program);
