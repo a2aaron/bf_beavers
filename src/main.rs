@@ -181,14 +181,23 @@ fn visualizer(program: bf::Program) {
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Interactive mode, with a BF program to visualize
-    #[clap(short, long, name = "BF PROGRAM", allow_hyphen_values = true)]
+    /// Interactive mode - run with a BF program to visualize
+    #[clap(short, long, value_name = "bf program", allow_hyphen_values = true)]
     interactive: Option<String>,
-    #[clap(long, default_value_t = 50_000)]
+    /// Interactive mode - start at step n
+    #[clap(long, value_name = "steps", default_value_t = 0)]
+    start_at: usize,
+    /// Simple mode - run a BF program and output the number of steps it took
+    #[clap(long, value_name = "bf program", allow_hyphen_values = true)]
+    run: Option<String>,
+    /// How many steps to run programs for before giving up
+    #[clap(long, value_name = "steps", default_value_t = 50_000)]
     max_steps: usize,
-    #[clap(long, default_value_t = 8)]
+    /// Beaver mode - The maximum length of programs to generate
+    #[clap(long, value_name = "length", default_value_t = 8)]
     max_length: usize,
-    #[clap(short, long)]
+    /// Beaver mode - Print the nth program
+    #[clap(short, value_name = "n", long)]
     print_every: Option<usize>,
 }
 fn main() {
