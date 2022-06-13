@@ -75,29 +75,22 @@ impl History {
 }
 
 pub fn run(program: &Program, starting_step: usize) {
-    fn print_state(
-        HistoryData {
-            real_steps,
-            status,
-            exec_ctx,
-        }: &HistoryData,
-        curr_step: usize,
-    ) {
+    fn print_state(history: &HistoryData, curr_step: usize) {
         crossterm::execute! { stdout(), cursor::MoveTo(0,0) }.unwrap();
         crossterm::execute! { stdout(), Clear(ClearType::All) }.unwrap();
 
-        let displayed_status = crossterm::style::style(format!("{:?}", status));
-        let displayed_status = match status {
+        let displayed_status = crossterm::style::style(format!("{:?}", history.status));
+        let displayed_status = match history.status {
             ExecutionStatus::Running => displayed_status,
             ExecutionStatus::Halted => displayed_status.on_red(),
             ExecutionStatus::InfiniteLoop(_) => displayed_status.on_cyan(),
         };
         println!(
             "Steps: {} (Actual: {}), Status: {}",
-            curr_step, real_steps, displayed_status
+            curr_step, history.real_steps, displayed_status
         );
 
-        exec_ctx.print_state(true);
+        history.exec_ctx.print_state(true);
     }
     let mut history = History::new(program);
     let mut curr_step = starting_step;
