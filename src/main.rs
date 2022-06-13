@@ -47,8 +47,8 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
     programs
         .enumerate()
         .inspect(|(i, program)| {
-            if let Some(print_every) = print_every && i % print_every == 0 {
-                eprintln!("{}", program)
+            if let Some(print_every) = print_every && i % print_every == 0 && *i != 0 {
+                eprintln!("{}: {}", i, program)
             }
         })
         .par_bridge()
