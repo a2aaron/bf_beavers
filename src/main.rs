@@ -1,9 +1,13 @@
+#![feature(let_chains)]
+
 use std::{convert::TryFrom, io::Write};
+
+use rayon::prelude::*;
 
 use clap::Parser;
 
 use bf_beavers::{
-    bf::{self, ExecutionState, LoopReason},
+    bf::{self, ExecutionState},
     generate, visualizer,
 };
 
@@ -35,52 +39,77 @@ struct BusyBeaverResults {
     lexiographic_size: usize,
 }
 
-fn beaver(length: usize, max_steps: usize, verbose: Option<usize>) -> BusyBeaverResults {
-    let mut best_programs = vec![];
-    let mut best_steps = 0;
-
-    let mut unknown_programs = vec![];
-
+fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBeaverResults {
     let programs = generate::brute_force_iterator(length);
+    let lexiographic_size = 6_usize.pow(length as u32);
 
-    let mut num_halted = 0;
-    let mut num_looping = 0;
-
-    for (i, program) in programs.enumerate() {
-        let (state, step_count) = step_count(&program, max_steps);
-
-        if verbose.map(|x| i % x == 0).unwrap_or(false) {
-            let prefix = match state {
-                ExecutionState::Running => "TIME ",
-                ExecutionState::Halted => "HALT ",
-                ExecutionState::InfiniteLoop(LoopReason::LoopIfNonzero) => "LOOP1",
-                ExecutionState::InfiniteLoop(LoopReason::LoopSpan { .. }) => "LOOP2",
-            };
-            eprintln!("{}: {}", prefix, program);
-        }
-
-        match state {
-            ExecutionState::Running => unknown_programs.push(program.clone()),
-            ExecutionState::Halted => {
-                num_halted += 1;
-                let steps = step_count.unwrap();
-                if steps > best_steps {
-                    best_programs = vec![program];
-                    best_steps = steps;
-                }
+    programs
+        .enumerate()
+        .inspect(|(i, program)| {
+            if let Some(print_every) = print_every && i % print_every == 0 {
+                eprintln!("{}", program)
             }
-            ExecutionState::InfiniteLoop(_) => num_looping += 1,
-        }
-    }
-
-    BusyBeaverResults {
-        best_programs,
-        best_steps,
-        unknown_programs,
-        num_halted,
-        num_looping,
-        lexiographic_size: generate::lexiographic_order(length).count(),
-    }
+        })
+        .par_bridge()
+        .map(|(_, program)| {
+            let (state, step) = step_count(&program, max_steps);
+            match state {
+                ExecutionState::Running => BusyBeaverResults {
+                    best_programs: vec![],
+                    best_steps: 0,
+                    unknown_programs: vec![program],
+                    num_halted: 0,
+                    num_looping: 0,
+                    lexiographic_size,
+                },
+                ExecutionState::Halted => BusyBeaverResults {
+                    best_programs: vec![program],
+                    best_steps: step.unwrap(),
+                    unknown_programs: vec![],
+                    num_halted: 1,
+                    num_looping: 0,
+                    lexiographic_size,
+                },
+                ExecutionState::InfiniteLoop(_) => BusyBeaverResults {
+                    best_programs: vec![],
+                    best_steps: 0,
+                    unknown_programs: vec![],
+                    num_halted: 0,
+                    num_looping: 1,
+                    lexiographic_size,
+                },
+            }
+        })
+        .reduce(
+            || BusyBeaverResults {
+                best_programs: vec![],
+                best_steps: 0,
+                unknown_programs: vec![],
+                num_halted: 0,
+                num_looping: 0,
+                lexiographic_size,
+            },
+            |mut a, mut b| BusyBeaverResults {
+                best_programs: {
+                    if a.best_steps == b.best_steps {
+                        a.best_programs.append(&mut b.best_programs);
+                        a.best_programs
+                    } else if a.best_steps > b.best_steps {
+                        a.best_programs
+                    } else {
+                        b.best_programs
+                    }
+                },
+                best_steps: a.best_steps.max(b.best_steps),
+                unknown_programs: {
+                    a.unknown_programs.append(&mut b.unknown_programs);
+                    a.unknown_programs
+                },
+                num_halted: a.num_halted + b.num_halted,
+                num_looping: a.num_looping + b.num_looping,
+                lexiographic_size,
+            },
+        )
 }
 
 #[derive(Parser, Debug)]
