@@ -37,7 +37,8 @@ impl History {
                     exec_ctx.step();
                 }
                 let mut array = Vec::with_capacity(1024);
-                for _ in 0..1024 {
+                array.push(((1, ExecutionState::Running), exec_ctx.clone()));
+                for _ in 0..1023 {
                     let state = exec_ctx.step();
                     array.push((state, exec_ctx.clone()))
                 }
