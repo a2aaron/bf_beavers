@@ -179,6 +179,10 @@ impl ExecutionContext {
         self.program_pointer
     }
 
+    pub fn tape_length(&self) -> usize {
+        self.memory.len()
+    }
+
     pub fn print_state(&self, show_execution_history: bool) {
         let memory = array_to_string(&self.memory);
         let memory_pointer = highlight(self.memory_pointer);

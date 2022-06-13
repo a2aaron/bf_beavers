@@ -11,7 +11,7 @@ use bf_beavers::{
     generate, visualizer,
 };
 
-fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionState, Option<usize>) {
+fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionState, Option<usize>, usize) {
     let mut ctx = bf::ExecutionContext::new(program);
     let mut total_real_steps = 0;
     for _ in 1..max_steps {
@@ -19,20 +19,21 @@ fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionState, Optio
         total_real_steps += real_steps;
         match state {
             ExecutionState::Halted => {
-                return (state, Some(total_real_steps));
+                return (state, Some(total_real_steps), ctx.tape_length());
             }
             ExecutionState::InfiniteLoop(_) => {
-                return (state, Some(total_real_steps));
+                return (state, Some(total_real_steps), ctx.tape_length());
             }
             ExecutionState::Running => (),
         }
     }
-    (ExecutionState::Running, None)
+    (ExecutionState::Running, None, ctx.tape_length())
 }
 
 struct BusyBeaverResults {
     best_programs: Vec<bf::Program>,
     best_steps: usize,
+    max_tape_length: usize,
     unknown_programs: Vec<bf::Program>,
     num_halted: usize,
     num_looping: usize,
@@ -52,11 +53,12 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
         })
         .par_bridge()
         .map(|(_, program)| {
-            let (state, step) = step_count(&program, max_steps);
+            let (state, step, max_tape_length) = step_count(&program, max_steps);
             match state {
                 ExecutionState::Running => BusyBeaverResults {
                     best_programs: vec![],
                     best_steps: 0,
+                    max_tape_length,
                     unknown_programs: vec![program],
                     num_halted: 0,
                     num_looping: 0,
@@ -65,6 +67,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                 ExecutionState::Halted => BusyBeaverResults {
                     best_programs: vec![program],
                     best_steps: step.unwrap(),
+                    max_tape_length,
                     unknown_programs: vec![],
                     num_halted: 1,
                     num_looping: 0,
@@ -73,6 +76,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                 ExecutionState::InfiniteLoop(_) => BusyBeaverResults {
                     best_programs: vec![],
                     best_steps: 0,
+                    max_tape_length,
                     unknown_programs: vec![],
                     num_halted: 0,
                     num_looping: 1,
@@ -84,6 +88,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
             || BusyBeaverResults {
                 best_programs: vec![],
                 best_steps: 0,
+                max_tape_length: 0,
                 unknown_programs: vec![],
                 num_halted: 0,
                 num_looping: 0,
@@ -101,6 +106,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     }
                 },
                 best_steps: a.best_steps.max(b.best_steps),
+                max_tape_length: a.max_tape_length.max(b.max_tape_length),
                 unknown_programs: {
                     a.unknown_programs.append(&mut b.unknown_programs);
                     a.unknown_programs
@@ -139,7 +145,7 @@ fn main() {
     if let Some(program) = args.run {
         match bf::Program::try_from(program.as_str()) {
             Ok(program) => {
-                let (state, steps) = step_count(&program, args.max_steps);
+                let (state, steps, _) = step_count(&program, args.max_steps);
                 match state {
                     ExecutionState::Running => {
                         println!("Timed out (runs longer than {} steps)", args.max_steps)
@@ -167,9 +173,9 @@ fn main() {
         }
     } else {
         for i in 0..=args.max_length {
-            let mut f = std::fs::File::create(format!("length_{}.txt", i)).unwrap();
             let results = beaver(i, args.max_steps, args.print_every);
 
+            let mut f = std::fs::File::create(format!("length_{}.txt", i)).unwrap();
             writeln!(f,
                 "Best Busy Beavers for Length {}\nTotal steps: {} (or best runs for longer than {} steps)",
                 i, results.best_steps, args.max_steps
@@ -199,7 +205,15 @@ fn main() {
                 total
             )
             .unwrap();
-            writeln!(f, "L + ratio: {}/{}", total, results.lexiographic_size).unwrap();
+            writeln!(
+                f,
+                "L + ratio: {}/{} ({:.1}%)",
+                total,
+                results.lexiographic_size,
+                100.0 * total as f32 / results.lexiographic_size as f32
+            )
+            .unwrap();
+            writeln!(f, "max tape length: {}", results.max_tape_length).unwrap();
         }
     }
 }
