@@ -10,7 +10,31 @@ use crossterm::{
 
 use crate::bf::{ExecutionContext, ExecutionState, Program};
 
-pub fn run(program: Program, starting_step: usize) {
+struct History {
+    history: Vec<((usize, ExecutionState), ExecutionContext)>,
+    latest_exec: ExecutionContext,
+}
+
+impl History {
+    fn new(program: &Program) -> History {
+        let latest_exec = ExecutionContext::new(program);
+        History {
+            history: vec![((0, ExecutionState::Running), latest_exec.clone())],
+            latest_exec,
+        }
+    }
+
+    fn get(&mut self, step: usize) -> &((usize, ExecutionState), ExecutionContext) {
+        while step >= self.history.len() {
+            let step_result = self.latest_exec.step();
+            self.history.push((step_result, self.latest_exec.clone()));
+        }
+
+        &self.history[step]
+    }
+}
+
+pub fn run(program: &Program, starting_step: usize) {
     fn print_state(
         ((_, state), exe_ctx): &((usize, ExecutionState), ExecutionContext),
         curr_step: usize,
@@ -28,20 +52,11 @@ pub fn run(program: Program, starting_step: usize) {
 
         exe_ctx.print_state(true);
     }
-
-    let mut lastest_exec = ExecutionContext::new(&program);
-
-    let mut history = vec![((0, ExecutionState::Running), lastest_exec.clone())];
-    let mut curr_step = 0_usize;
-
-    for _ in 0..starting_step {
-        curr_step += 1;
-        let step_result = lastest_exec.step();
-        history.push((step_result, lastest_exec.clone()));
-    }
+    let mut history = History::new(program);
+    let mut curr_step = starting_step;
 
     crossterm::execute! { stdout(), EnterAlternateScreen }.unwrap();
-    print_state(&history[curr_step], curr_step);
+    print_state(history.get(curr_step), curr_step);
 
     'outer: loop {
         crossterm::terminal::enable_raw_mode().unwrap();
@@ -50,7 +65,7 @@ pub fn run(program: Program, starting_step: usize) {
 
         if let Event::Key(event) = event {
             // If shift is held, jump to the end/start of this loop.
-            let curr_exec = &history[curr_step].1;
+            let curr_exec = &history.get(curr_step).1;
             let corresponding_loop = if event.modifiers.contains(KeyModifiers::SHIFT) {
                 curr_exec.current_loop_bounds()
             } else {
@@ -64,20 +79,12 @@ pub fn run(program: Program, starting_step: usize) {
                     }
                     KeyCode::Right | KeyCode::Char('d') => {
                         curr_step += 1;
-
-                        while curr_step >= history.len() {
-                            let step_result = lastest_exec.step();
-                            history.push((step_result, lastest_exec.clone()));
-                            if history.len() >= 1_000_000 {
-                                panic!("Too much history!");
-                            }
-                        }
                     }
                     KeyCode::Esc | KeyCode::Char('q') => break 'outer,
                     _ => (),
                 }
 
-                let curr_exec = &history[curr_step].1;
+                let curr_exec = &history.get(curr_step).1;
                 if let Some((start, end)) = corresponding_loop && start <= curr_exec.program_pointer() && curr_exec.program_pointer() < end {
                     continue;
                 } else {
@@ -85,7 +92,7 @@ pub fn run(program: Program, starting_step: usize) {
                 }
             }
         }
-        print_state(&history[curr_step], curr_step);
+        print_state(&history.get(curr_step), curr_step);
     }
     stdout().execute(LeaveAlternateScreen).unwrap();
 }

@@ -133,7 +133,7 @@ fn main() {
         match bf::Program::try_from(program.as_str()) {
             Ok(program) => {
                 println!("Visualizing {}", program);
-                visualizer::run(program, args.start_at);
+                visualizer::run(&program, args.start_at);
                 println!("Exiting...");
             }
             Err(err) => println!("Cannot compile {} (reason: {})", program, err),
