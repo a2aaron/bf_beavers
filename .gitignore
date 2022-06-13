@@ -3,3 +3,4 @@ out.txt
 length*.txt
 flamegraph.svg
 .vscode
+.DS_Store
