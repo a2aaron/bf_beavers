@@ -3,3 +3,4 @@
 
 pub mod bf;
 pub mod generate;
+pub mod visualizer;
