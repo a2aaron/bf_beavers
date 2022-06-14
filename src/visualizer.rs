@@ -78,6 +78,33 @@ impl History {
         }
     }
 
+    /// Return the HistoryData corresponding to the soonest time when execution reaches the end
+    /// the current loop. This does not cache intermediate steps of the loop. This function
+    /// also bails out after 10000 steps.
+    fn get_after_this_loop(&mut self, mut step: usize, step_size: isize) -> (HistoryData, usize) {
+        let mut data = self.get(step);
+        let corresponding_loop = data.exec_ctx.current_loop_bounds();
+        match corresponding_loop {
+            Some((start, end)) => {
+                for _ in 0..10_000 {
+                    data.step();
+                    step = step.saturating_add_signed(step_size);
+
+                    if step % 1000 == 0 && !self.history.contains_key(&step) {
+                        self.insert_step(step, data.clone());
+                    }
+
+                    let inside_loop = (start..end).contains(&data.exec_ctx.program_pointer());
+                    if !inside_loop || (step == 0 && step_size < 0) {
+                        break;
+                    }
+                }
+            }
+            None => (),
+        }
+        (data, step)
+    }
+
     fn insert_step(&mut self, step: usize, data: HistoryData) {
         assert!(!self.history.contains_key(&step));
         self.cells_allocated += data.exec_ctx.total_cells_allocated();
@@ -111,8 +138,9 @@ pub fn run(program: &Program, starting_step: usize) {
             curr_step, real_steps, displayed_status
         );
         println!(
-            "Total cells allocated: {}",
-            history.total_cells_allocated().separate_with_commas()
+            "Total cells allocated: {} (in {} cached steps)",
+            history.total_cells_allocated().separate_with_commas(),
+            history.history.len()
         );
 
         exec_ctx.print_state(true);
@@ -130,31 +158,24 @@ pub fn run(program: &Program, starting_step: usize) {
 
         if let Event::Key(event) = event {
             // If shift is held, jump to the end/start of this loop.
-            let exec_ctx = &history.get(curr_step).exec_ctx;
-            let corresponding_loop = if event.modifiers.contains(KeyModifiers::SHIFT) {
-                exec_ctx.current_loop_bounds()
-            } else {
-                None
-            };
-
-            loop {
-                match event.code {
-                    KeyCode::Left | KeyCode::Char('a') => {
+            let shift_held = event.modifiers.contains(KeyModifiers::SHIFT);
+            match event.code {
+                KeyCode::Left | KeyCode::Char('a') => {
+                    if shift_held {
+                        curr_step = history.get_after_this_loop(curr_step, -1).1;
+                    } else {
                         curr_step = curr_step.saturating_sub(1);
                     }
-                    KeyCode::Right | KeyCode::Char('d') => {
+                }
+                KeyCode::Right | KeyCode::Char('d') => {
+                    if shift_held {
+                        curr_step = history.get_after_this_loop(curr_step, 1).1;
+                    } else {
                         curr_step += 1;
                     }
-                    KeyCode::Esc | KeyCode::Char('q') => break 'outer,
-                    _ => (),
                 }
-
-                let exec_ctx = &history.get(curr_step).exec_ctx;
-                if let Some((start, end)) = corresponding_loop && (start..end).contains(&exec_ctx.program_pointer()) {
-                    continue;
-                } else {
-                     break;
-                }
+                KeyCode::Esc | KeyCode::Char('q') => break 'outer,
+                _ => (),
             }
         }
         print_state(&mut history, curr_step);
