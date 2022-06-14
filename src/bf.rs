@@ -801,11 +801,13 @@ mod tests {
         None
     }
 
+    #[track_caller]
     fn assert_halting(program: &str) {
         let program = Program::try_from(program).unwrap();
         assert_eq!(eval(&program, 9_999_999).unwrap(), ExecutionStatus::Halted);
     }
 
+    #[track_caller]
     fn assert_not_halting_loop_if_nonzero(program: &str) {
         let program = Program::try_from(program).unwrap();
         let result = matches!(
@@ -815,6 +817,7 @@ mod tests {
         assert!(result);
     }
 
+    #[track_caller]
     fn assert_not_halting_loop_span(program: &str) {
         let program = Program::try_from(program).unwrap();
         let result = matches!(
