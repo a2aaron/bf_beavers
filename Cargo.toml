@@ -10,6 +10,7 @@ owo-colors = "3.4.0"
 clap = { version = "3.1.18", features = ["derive"] }
 crossterm = "0.23.2"
 rayon = "1.5.3"
+thousands = "0.2.0"
 
 [profile.release]
 debug = true

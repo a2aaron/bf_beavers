@@ -11,6 +11,7 @@ use crossterm::{
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
+use thousands::Separable;
 
 use crate::bf::{ExecutionContext, ExecutionStatus, Program};
 
@@ -72,31 +73,49 @@ impl History {
         };
         entry.get()[step - nearest_gradiation * 1024].clone()
     }
+
+    fn total_cells_allocated(&self) -> usize {
+        self.history
+            .values()
+            .flatten()
+            .map(|history| history.exec_ctx.total_cells_allocated())
+            .sum()
+    }
 }
 
 pub fn run(program: &Program, starting_step: usize) {
-    fn print_state(history: &HistoryData, curr_step: usize) {
+    fn print_state(history: &mut History, curr_step: usize) {
         crossterm::execute! { stdout(), cursor::MoveTo(0,0) }.unwrap();
         crossterm::execute! { stdout(), Clear(ClearType::All) }.unwrap();
 
-        let displayed_status = crossterm::style::style(format!("{:?}", history.status));
-        let displayed_status = match history.status {
+        let HistoryData {
+            status,
+            real_steps,
+            exec_ctx,
+        } = &history.get(curr_step);
+
+        let displayed_status = crossterm::style::style(format!("{:?}", status));
+        let displayed_status = match status {
             ExecutionStatus::Running => displayed_status,
             ExecutionStatus::Halted => displayed_status.on_red(),
             ExecutionStatus::InfiniteLoop(_) => displayed_status.on_cyan(),
         };
         println!(
             "Steps: {} (Actual: {}), Status: {}",
-            curr_step, history.real_steps, displayed_status
+            curr_step, real_steps, displayed_status
+        );
+        println!(
+            "Total cells allocated: {}",
+            history.total_cells_allocated().separate_with_commas()
         );
 
-        history.exec_ctx.print_state(true);
+        exec_ctx.print_state(true);
     }
     let mut history = History::new(program);
     let mut curr_step = starting_step;
 
     crossterm::execute! { stdout(), EnterAlternateScreen }.unwrap();
-    print_state(&history.get(curr_step), curr_step);
+    print_state(&mut history, curr_step);
 
     'outer: loop {
         crossterm::terminal::enable_raw_mode().unwrap();
@@ -132,7 +151,7 @@ pub fn run(program: &Program, starting_step: usize) {
                 }
             }
         }
-        print_state(&history.get(curr_step), curr_step);
+        print_state(&mut history, curr_step);
     }
     stdout().execute(LeaveAlternateScreen).unwrap();
 }

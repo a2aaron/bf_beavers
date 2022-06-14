@@ -184,6 +184,10 @@ impl ExecutionContext {
         self.memory.len()
     }
 
+    pub fn total_cells_allocated(&self) -> usize {
+        self.memory.len() + self.loop_span_history.total_cells_allocated()
+    }
+
     pub fn print_state(&self, show_execution_history: bool) {
         let memory = array_to_string(&self.memory);
         let memory_pointer = highlight(self.memory_pointer);
@@ -354,6 +358,19 @@ impl LoopSpanHistory {
     fn reset_past_loop_spans(&mut self, loop_index: usize) {
         self.single_loop_spans.get_mut(&loop_index).unwrap().clear()
     }
+
+    fn total_cells_allocated(&self) -> usize {
+        self.active_loop_spans
+            .values()
+            .map(|loop_span| loop_span.total_cells_allocated())
+            .sum::<usize>()
+            + self
+                .single_loop_spans
+                .values()
+                .flatten()
+                .map(|loop_span| loop_span.total_cells_allocated())
+                .sum::<usize>()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -423,6 +440,10 @@ impl LoopSpan {
 
     fn displacement(&self) -> isize {
         self.current_memory_pointer as isize - self.starting_memory_pointer as isize
+    }
+
+    fn total_cells_allocated(&self) -> usize {
+        self.memory_at_loop_start.len()
     }
 }
 
