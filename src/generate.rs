@@ -7,7 +7,7 @@ pub fn brute_force_chain(lengths: Range<usize>) -> impl Iterator<Item = Program>
 }
 
 pub fn brute_force_iterator(length: usize) -> impl Iterator<Item = Program> {
-    lexiographic_order(length).filter_map(|instrs| Program::new(&instrs).ok())
+    lexiographic_order(length).filter_map(|instrs| Program::new(instrs).ok())
 }
 
 pub fn lexiographic_order(length: usize) -> impl Iterator<Item = Vec<Instr>> {

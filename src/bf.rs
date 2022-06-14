@@ -577,11 +577,12 @@ pub struct Program {
 impl Program {
     /// Create a Program from a list of instructions. If there are mismatched
     /// braces, a CompileError is returned.
-    pub fn new(instrs: &[Instr]) -> Result<Program, CompileError> {
-        let extended_instrs = ExtendedInstr::new(instrs);
+    pub fn new(instrs: impl IntoIterator<Item = Instr>) -> Result<Program, CompileError> {
+        let original_instrs: Vec<_> = instrs.into_iter().collect();
+        let extended_instrs = ExtendedInstr::new(&original_instrs);
         let loop_dict = loop_dict(&extended_instrs)?;
         Ok(Program {
-            original_instrs: instrs.to_vec(),
+            original_instrs,
             extended_instrs,
             loop_dict,
         })
@@ -606,11 +607,15 @@ impl TryFrom<&str> for Program {
     type Error = CompileError;
 
     fn try_from(string: &str) -> Result<Self, Self::Error> {
-        let instrs = string
-            .chars()
-            .filter_map(|x| x.try_into().ok())
-            .collect::<Vec<Instr>>();
-        Program::new(&instrs)
+        Program::new(string.chars().filter_map(|x| x.try_into().ok()))
+    }
+}
+
+impl TryFrom<&[u8]> for Program {
+    type Error = CompileError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Program::new(bytes.iter().filter_map(|&x| x.try_into().ok()))
     }
 }
 
@@ -726,6 +731,14 @@ impl TryFrom<char> for Instr {
             ']' => Ok(Instr::EndLoop),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<u8> for Instr {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::try_from(value as char)
     }
 }
 
