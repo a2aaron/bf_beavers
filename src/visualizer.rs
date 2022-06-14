@@ -1,8 +1,4 @@
-use std::{
-    collections::{hash_map, HashMap},
-    convert::TryInto,
-    io::stdout,
-};
+use std::{collections::BTreeMap, io::stdout};
 
 use crossterm::{
     cursor,
@@ -23,61 +19,66 @@ struct HistoryData {
 }
 
 impl HistoryData {
-    fn new(real_steps: usize, status: ExecutionStatus, exec_ctx: &ExecutionContext) -> HistoryData {
+    fn new(program: &Program) -> HistoryData {
         HistoryData {
-            real_steps,
-            status,
-            exec_ctx: exec_ctx.clone(),
+            real_steps: 0,
+            status: ExecutionStatus::Running,
+            exec_ctx: ExecutionContext::new(program),
         }
+    }
+
+    fn step(&mut self) {
+        let (delta, new_status) = self.exec_ctx.step();
+        self.real_steps += delta;
+        self.status = new_status;
     }
 }
 
 struct History {
-    history: HashMap<usize, [HistoryData; 1024]>,
+    history: BTreeMap<usize, HistoryData>,
     program: Program,
 }
 
 impl History {
     fn new(program: &Program) -> History {
         History {
-            history: HashMap::new(),
+            history: BTreeMap::new(),
             program: program.clone(),
         }
     }
 
+    /// Return the HistoryData corresponding to step `step`. This function attempts to cache results when possible.
     fn get(&mut self, step: usize) -> HistoryData {
-        let nearest_gradiation = step / 1024;
-        let entry = match self.history.entry(nearest_gradiation) {
-            hash_map::Entry::Occupied(entry) => entry,
-            hash_map::Entry::Vacant(entry) => {
-                let mut real_steps = 0;
-                let mut exec_ctx = ExecutionContext::new(&self.program);
-                for _ in 0..nearest_gradiation * 1024 {
-                    let (real_steps_delta, _) = exec_ctx.step();
-                    real_steps += real_steps_delta;
-                }
-                let mut array = Vec::with_capacity(1024);
-                array.push(HistoryData::new(
-                    real_steps,
-                    ExecutionStatus::Running,
-                    &exec_ctx,
-                ));
-                for _ in 0..1023 {
-                    let (real_steps_delta, status) = exec_ctx.step();
-                    real_steps += real_steps_delta;
-                    array.push(HistoryData::new(real_steps, status, &exec_ctx));
-                }
+        if self.history.contains_key(&step) {
+            self.history[&step].clone()
+        } else {
+            // Get the nearest entry below the step count.
+            let nearest_lower_entry = self.history.range(..step).next_back();
+            let (steps_to_run, mut history_data) = match nearest_lower_entry {
+                Some((lower_steps, history_data)) => (step - lower_steps, history_data.clone()),
+                None => (step, HistoryData::new(&self.program)),
+            };
 
-                entry.insert_entry(array.try_into().unwrap())
+            // Advance the execution context to the desired step.
+            for i in 0..steps_to_run {
+                let step = (step - steps_to_run) + i;
+                history_data.step();
+
+                // We cache every 1000th step here because it is likely that the user will want to keep going backwards.
+                // Caching some intermediate steps avoids having to recompute a lot of work each time.
+                if step % 1000 == 0 && !self.history.contains_key(&step) {
+                    self.history.insert(step, history_data.clone());
+                }
             }
-        };
-        entry.get()[step - nearest_gradiation * 1024].clone()
+
+            self.history.insert(step, history_data.clone());
+            history_data
+        }
     }
 
     fn total_cells_allocated(&self) -> usize {
         self.history
             .values()
-            .flatten()
             .map(|history| history.exec_ctx.total_cells_allocated())
             .sum()
     }
