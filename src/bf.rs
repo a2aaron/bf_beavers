@@ -180,6 +180,14 @@ impl ExecutionContext {
         self.program_pointer
     }
 
+    pub fn memory_pointer(&self) -> usize {
+        self.memory_pointer
+    }
+
+    pub fn tape(&self) -> &[u8] {
+        &self.memory
+    }
+
     pub fn tape_length(&self) -> usize {
         self.memory.len()
     }
