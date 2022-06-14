@@ -69,7 +69,11 @@ mod tests {
                         }
                     }
                     self.program_pointer += 1;
-                    SimpleExecutionState::Running
+                    if self.program.get(self.program_pointer).is_none() {
+                        SimpleExecutionState::Halted
+                    } else {
+                        SimpleExecutionState::Running
+                    }
                 }
             }
         }

@@ -139,7 +139,14 @@ impl ExecutionContext {
                         _ => (),
                     }
                     self.program_pointer += 1;
-                    execution_result
+                    // We check the program pointer here to ensure that we return Halted as soon as
+                    // the program would have halted. This avoids doing an extra call.
+                    // (Ex: we would like `+-><` to return Halted after executing the `< `instruction)
+                    if self.program.get(self.program_pointer).is_none() {
+                        (execution_result.0, ExecutionStatus::Halted)
+                    } else {
+                        execution_result
+                    }
                 }
                 ExtendedInstr::LoopIfNonzero => {
                     if self.memory[self.memory_pointer] == 0 {
