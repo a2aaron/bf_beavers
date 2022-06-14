@@ -18,10 +18,7 @@ fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionStatus, Opti
         let (real_steps, state) = ctx.step();
         total_real_steps += real_steps;
         match state {
-            ExecutionStatus::Halted => {
-                return (state, Some(total_real_steps), ctx.tape_length());
-            }
-            ExecutionStatus::InfiniteLoop(_) => {
+            ExecutionStatus::Halted | ExecutionStatus::InfiniteLoop(_) => {
                 return (state, Some(total_real_steps), ctx.tape_length());
             }
             ExecutionStatus::Running => (),
@@ -33,6 +30,7 @@ fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionStatus, Opti
 struct BusyBeaverResults {
     best_programs: Vec<bf::Program>,
     best_steps: usize,
+    hardest_to_prove: Option<(usize, bf::Program)>,
     max_tape_length: usize,
     unknown_programs: Vec<bf::Program>,
     num_halted: usize,
@@ -59,6 +57,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     best_programs: vec![],
                     best_steps: 0,
                     max_tape_length,
+                    hardest_to_prove: None,
                     unknown_programs: vec![program],
                     num_halted: 0,
                     num_looping: 0,
@@ -68,6 +67,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     best_programs: vec![program],
                     best_steps: step.unwrap(),
                     max_tape_length,
+                    hardest_to_prove: None,
                     unknown_programs: vec![],
                     num_halted: 1,
                     num_looping: 0,
@@ -77,6 +77,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     best_programs: vec![],
                     best_steps: 0,
                     max_tape_length,
+                    hardest_to_prove: Some((step.unwrap(), program)),
                     unknown_programs: vec![],
                     num_halted: 0,
                     num_looping: 1,
@@ -89,6 +90,7 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                 best_programs: vec![],
                 best_steps: 0,
                 max_tape_length: 0,
+                hardest_to_prove: None,
                 unknown_programs: vec![],
                 num_halted: 0,
                 num_looping: 0,
@@ -106,6 +108,18 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     }
                 },
                 best_steps: a.best_steps.max(b.best_steps),
+                hardest_to_prove: match (a.hardest_to_prove, b.hardest_to_prove) {
+                    (Some((a_steps, a_prog)), Some((b_steps, b_prog))) => {
+                        if a_steps > b_steps {
+                            Some((a_steps, a_prog))
+                        } else {
+                            Some((b_steps, b_prog))
+                        }
+                    }
+                    (Some(a), None) => Some(a),
+                    (None, Some(b)) => Some(b),
+                    (None, None) => None,
+                },
                 max_tape_length: a.max_tape_length.max(b.max_tape_length),
                 unknown_programs: {
                     a.unknown_programs.append(&mut b.unknown_programs);
@@ -214,6 +228,14 @@ fn main() {
             )
             .unwrap();
             writeln!(f, "max tape length: {}", results.max_tape_length).unwrap();
+            if let Some((steps, program)) = results.hardest_to_prove {
+                writeln!(
+                    f,
+                    "hardest to prove: {} ({} steps required)",
+                    program, steps,
+                )
+                .unwrap();
+            }
         }
     }
 }
