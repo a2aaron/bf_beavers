@@ -37,6 +37,7 @@ impl HistoryData {
 struct History {
     history: BTreeMap<usize, HistoryData>,
     program: Program,
+    cells_allocated: usize,
 }
 
 impl History {
@@ -44,6 +45,7 @@ impl History {
         History {
             history: BTreeMap::new(),
             program: program.clone(),
+            cells_allocated: 0,
         }
     }
 
@@ -54,7 +56,7 @@ impl History {
         } else {
             // Get the nearest entry below the step count.
             let nearest_lower_entry = self.history.range(..step).next_back();
-            let (steps_to_run, mut history_data) = match nearest_lower_entry {
+            let (steps_to_run, mut data) = match nearest_lower_entry {
                 Some((lower_steps, history_data)) => (step - lower_steps, history_data.clone()),
                 None => (step, HistoryData::new(&self.program)),
             };
@@ -62,25 +64,28 @@ impl History {
             // Advance the execution context to the desired step.
             for i in 0..steps_to_run {
                 let step = (step - steps_to_run) + i;
-                history_data.step();
+                data.step();
 
                 // We cache every 1000th step here because it is likely that the user will want to keep going backwards.
                 // Caching some intermediate steps avoids having to recompute a lot of work each time.
                 if step % 1000 == 0 && !self.history.contains_key(&step) {
-                    self.history.insert(step, history_data.clone());
+                    self.insert_step(step, data.clone());
                 }
             }
 
-            self.history.insert(step, history_data.clone());
-            history_data
+            self.insert_step(step, data.clone());
+            data
         }
     }
 
+    fn insert_step(&mut self, step: usize, data: HistoryData) {
+        assert!(!self.history.contains_key(&step));
+        self.cells_allocated += data.exec_ctx.total_cells_allocated();
+        self.history.insert(step, data);
+    }
+
     fn total_cells_allocated(&self) -> usize {
-        self.history
-            .values()
-            .map(|history| history.exec_ctx.total_cells_allocated())
-            .sum()
+        self.cells_allocated
     }
 }
 
