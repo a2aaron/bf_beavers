@@ -149,7 +149,7 @@ impl ExecutionContext {
                 ExtendedInstr::LoopIfNonzero => {
                     if self.memory[self.memory_pointer] == 0 {
                         self.program_pointer += 1;
-                        (2, ExecutionStatus::Running)
+                        (1, ExecutionStatus::Running)
                     } else {
                         (2, ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero))
                     }
