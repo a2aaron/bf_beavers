@@ -31,11 +31,11 @@ mod tests {
             }
         }
 
-        fn step(&mut self) -> SimpleExecutionState {
+        fn step(&mut self) -> (SimpleExecutionState, usize) {
             let instruction = self.program.get(self.program_pointer);
 
             match instruction {
-                None => SimpleExecutionState::Halted,
+                None => (SimpleExecutionState::Halted, 0),
                 Some(instruction) => {
                     match instruction {
                         Instr::Plus => {
@@ -70,9 +70,9 @@ mod tests {
                     }
                     self.program_pointer += 1;
                     if self.program.get(self.program_pointer).is_none() {
-                        SimpleExecutionState::Halted
+                        (SimpleExecutionState::Halted, 1)
                     } else {
-                        SimpleExecutionState::Running
+                        (SimpleExecutionState::Running, 1)
                     }
                 }
             }
@@ -119,57 +119,52 @@ mod tests {
     fn eval(
         program: &Program,
         max_steps: usize,
-    ) -> (
-        Option<(ExecutionStatus, usize)>,
-        (SimpleExecutionState, Option<usize>),
-    ) {
+    ) -> ((ExecutionStatus, usize), (SimpleExecutionState, usize)) {
         let mut real_ctx = ExecutionContext::new(program);
         let mut simple_ctx = SimpleExecutionContext::new(program);
 
-        let mut real_state = None;
+        let mut real_state = ExecutionStatus::Running;
         let mut real_steps = 0;
         for _ in 0..max_steps {
             let (delta, state) = real_ctx.step();
             real_steps += delta;
-            if state != ExecutionStatus::Running {
-                real_state = Some((state, real_steps));
+            real_state = state;
+            if real_state != ExecutionStatus::Running {
                 break;
             }
         }
 
         let max_steps = match real_state {
-            Some((ExecutionStatus::Halted, _)) => real_steps,
-            Some((ExecutionStatus::Running, _)) => unreachable!(),
-            Some((ExecutionStatus::InfiniteLoop(_), _)) => real_steps * 2,
-            None => max_steps,
+            ExecutionStatus::Halted => real_steps,
+            ExecutionStatus::Running => max_steps,
+            ExecutionStatus::InfiniteLoop(_) => real_steps * 2,
         };
 
         let mut simple_state = SimpleExecutionState::Running;
-        let mut simple_steps = None;
-        for i in 0..=dbg!(max_steps) {
-            let state = simple_ctx.step();
+        let mut simple_steps = 0;
+        for _ in 0..=max_steps {
+            let (state, steps) = simple_ctx.step();
+            simple_steps += steps;
             if state == SimpleExecutionState::Halted {
                 simple_state = SimpleExecutionState::Halted;
-                simple_steps = Some(i + 1);
                 break;
             }
         }
 
-        (real_state, (simple_state, simple_steps))
+        ((real_state, real_steps), (simple_state, simple_steps))
     }
 
     fn assert_model_matches(
         program: &Program,
         max_steps: usize,
-    ) -> (
-        Option<(ExecutionStatus, usize)>,
-        (SimpleExecutionState, Option<usize>),
-    ) {
-        let (real_state, simple_state) = eval(program, max_steps);
+    ) -> ((ExecutionStatus, usize), (SimpleExecutionState, usize)) {
+        let ((real_state, real_steps), (simple_state, simple_steps)) = eval(program, max_steps);
         match (&real_state, simple_state) {
-            (None, (SimpleExecutionState::Running, _)) => (),
-            (Some((ExecutionStatus::Halted, _)), (SimpleExecutionState::Halted, _)) => (),
-            (Some((ExecutionStatus::InfiniteLoop(_), _)), (SimpleExecutionState::Running, _)) => (),
+            (ExecutionStatus::Running, SimpleExecutionState::Running) => (),
+            (ExecutionStatus::InfiniteLoop(_), SimpleExecutionState::Running) => (),
+            (ExecutionStatus::Halted, SimpleExecutionState::Halted) => {
+                assert_eq!(real_steps, simple_steps, "Program: {}", program);
+            }
             (real_state, simple_state) => {
                 println!(
                     "Mismatch for program {}\n(Real: {:#?}, Simple: {:#?})",
@@ -178,18 +173,14 @@ mod tests {
                 panic!();
             }
         }
-        (real_state, simple_state)
+        ((real_state, real_steps), (simple_state, simple_steps))
     }
 
     fn assert_halting(program: &Program, max_steps: usize) {
-        let (real_state, (simple_state, simple_steps)) = eval(program, max_steps);
-        if simple_state != SimpleExecutionState::Halted {
-            println!("[INVALID] Simple executor did not halt (expected to halt)!");
-        }
-        let (real_state, real_steps) = real_state.unwrap();
-
+        let ((real_state, real_steps), (simple_state, simple_steps)) = eval(program, max_steps);
+        assert_eq!(simple_state, SimpleExecutionState::Halted);
         assert_eq!(real_state, ExecutionStatus::Halted);
-        assert_eq!(real_steps, simple_steps.unwrap());
+        assert_eq!(real_steps, simple_steps);
     }
 
     #[test]
@@ -219,12 +210,11 @@ mod tests {
                     eprintln!("{}", program);
                 }
                 let max_steps = 10_000;
-                let (real_state, _) = assert_model_matches(&program, max_steps);
+                let ((real_state, _), _) = assert_model_matches(&program, max_steps);
                 match real_state {
-                    Some((ExecutionStatus::Halted, _)) => num_halted += 1,
-                    Some((ExecutionStatus::InfiniteLoop(_), _)) => num_looping += 1,
-                    None => num_unknown += 1,
-                    Some((ExecutionStatus::Running, _)) => unreachable!(),
+                    ExecutionStatus::Halted => num_halted += 1,
+                    ExecutionStatus::InfiniteLoop(_) => num_looping += 1,
+                    ExecutionStatus::Running => num_unknown += 1,
                 }
             }
             println!(
