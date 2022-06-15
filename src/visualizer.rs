@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, io::stdout};
 
+use bf_beavers::bf::{LoopReason, LoopSpan};
 use crossterm::{
     cursor,
     event::{Event, KeyCode, KeyModifiers},
@@ -7,6 +8,7 @@ use crossterm::{
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
+use owo_colors::{AnsiColors, OwoColorize};
 use thousands::Separable;
 
 use crate::bf::{ExecutionContext, ExecutionStatus, Program};
@@ -143,7 +145,7 @@ pub fn run(program: &Program, starting_step: usize) {
             history.history.len()
         );
 
-        exec_ctx.print_state(true);
+        println!("{}", ExecutionContextFormatter(exec_ctx));
     }
     let mut history = History::new(program);
     let mut curr_step = starting_step;
@@ -181,4 +183,178 @@ pub fn run(program: &Program, starting_step: usize) {
         print_state(&mut history, curr_step);
     }
     stdout().execute(LeaveAlternateScreen).unwrap();
+}
+
+struct ExecutionContextFormatter<'a>(&'a ExecutionContext);
+
+impl<'a> std::fmt::Display for ExecutionContextFormatter<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let memory = array_to_string(&self.0.tape());
+        let memory_pointer = highlight(self.0.memory_pointer());
+
+        let program = self
+            .0
+            .program()
+            .extended_instrs()
+            .iter()
+            .map(|instr| format!("{}", instr))
+            .collect::<String>();
+
+        let program_ptr = self
+            .0
+            .program()
+            .extended_instrs()
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                if i == self.0.program_pointer() {
+                    "^".to_string()
+                } else {
+                    " ".to_string()
+                }
+            })
+            .collect::<String>();
+
+        writeln!(f, "Memory: {}", memory)?;
+        writeln!(f, "        {}", memory_pointer)?;
+        writeln!(f, "Program: {}", program)?;
+        writeln!(f, "         {}", program_ptr)?;
+
+        // Sort the active loop spans by the loop id in ascending order
+        // This allows the printed active span list to look more like a
+        // call stack, with deeper nested loops appearning below the loops
+        // they are nested in.
+        let mut active_spans = self
+            .0
+            .loop_span_history()
+            .active_loop_spans()
+            .iter()
+            .collect::<Vec<_>>();
+        active_spans.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (idx, state) in active_spans {
+            writeln!(
+                f,
+                "active span for instr @ {}:\n{}",
+                idx,
+                LoopSpanFormatter(state)
+            )?;
+        }
+
+        // Do the same for the loop span history.
+        let mut span_history = self
+            .0
+            .loop_span_history()
+            .single_loop_spans()
+            .iter()
+            .collect::<Vec<_>>();
+        span_history.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (idx, states) in span_history {
+            if states.len() > 10 {
+                writeln!(
+                    f,
+                    "history for instr @ {} (too long: {} entries)",
+                    idx,
+                    states.len()
+                )?;
+            } else {
+                // We iterate over the states in reverse order so that
+                // the most recent spans are at the top.
+                writeln!(f, "history for instr @ {}", idx)?;
+                for state in states.iter().rev() {
+                    writeln!(f, "{}", LoopSpanFormatter(state))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+struct LoopReasonFormatter<'a>(&'a LoopReason);
+
+impl<'a> std::fmt::Display for LoopReasonFormatter<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            LoopReason::LoopIfNonzero => write!(f, "LoopIfNonzero instruction triggered"),
+            LoopReason::LoopSpan { prior, current } => write!(
+                f,
+                "LoopSpan triggered. prior span:\n{}\ncurrent span:\n{}",
+                LoopSpanFormatter(prior),
+                LoopSpanFormatter(current)
+            ),
+        }
+    }
+}
+
+struct LoopSpanFormatter<'a>(&'a LoopSpan);
+
+impl<'a> std::fmt::Display for LoopSpanFormatter<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "start: {} curr: {} min: {} max: {} (disp: {})",
+            self.0.starting_memory_pointer,
+            self.0.current_memory_pointer,
+            self.0.min_index,
+            self.0.max_index,
+            self.0.displacement()
+        )?;
+
+        for i in 0..self.0.memory_at_loop_start.len() {
+            let (fg, bg) = if i == self.0.starting_memory_pointer {
+                (AnsiColors::Red, AnsiColors::BrightCyan)
+            } else if self.0.min_index <= i && i <= self.0.max_index {
+                (AnsiColors::Default, AnsiColors::BrightCyan)
+            } else {
+                (AnsiColors::BrightBlack, AnsiColors::Default)
+            };
+            write!(
+                f,
+                "{} ",
+                to_hex(self.0.memory_at_loop_start[i])
+                    .color(fg)
+                    .on_color(bg)
+            )?;
+        }
+        writeln!(f)?;
+
+        for i in 0..=self.0.max_index {
+            let text = if i == self.0.current_memory_pointer {
+                "^^"
+            } else if i == self.0.min_index {
+                "|-"
+            } else if i == self.0.max_index {
+                "-|"
+            } else if self.0.min_index < i && i < self.0.max_index {
+                "--"
+            } else {
+                "  "
+            };
+
+            write!(f, "{} ", text)?;
+        }
+        writeln!(f)?;
+        Ok(())
+    }
+}
+
+// Transform the u8 to a hexidecimal encoded string
+fn to_hex(x: u8) -> String {
+    format!("{:0>2X}", x)
+}
+
+// Transform the array of u8s to a string of hexidecimal encoded values, seperated by spaces
+fn array_to_string(array: &[u8]) -> String {
+    array
+        .iter()
+        .map(|x| to_hex(*x))
+        .intersperse(" ".to_string())
+        .collect()
+}
+
+// Return a string with a specific position highlighted by ^^
+fn highlight(index: usize) -> String {
+    (0..=index)
+        .map(|i| if index == i { "^^" } else { "  " })
+        .intersperse(" ")
+        .collect()
 }

@@ -1,4 +1,8 @@
 #![feature(let_chains)]
+#![feature(mixed_integer_ops)]
+#![feature(iter_intersperse)]
+
+pub mod visualizer;
 
 use std::{convert::TryFrom, io::Write};
 
@@ -8,7 +12,7 @@ use clap::Parser;
 
 use bf_beavers::{
     bf::{self, ExecutionStatus},
-    generate, visualizer,
+    generate,
 };
 
 fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionStatus, Option<usize>, usize) {

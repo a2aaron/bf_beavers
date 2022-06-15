@@ -18,7 +18,7 @@ mod tests {
 
     impl SimpleExecutionContext {
         fn new(program: &bf::Program) -> SimpleExecutionContext {
-            let program = program.original_instrs.clone();
+            let program = program.original_instrs().to_vec();
 
             let loop_dict = loop_dict(&program).unwrap();
 

@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 
-use owo_colors::{AnsiColors, OwoColorize};
-
 const INITAL_MEMORY: usize = 1;
 const EXTEND_MEMORY_AMOUNT: usize = 1;
 
@@ -195,6 +193,14 @@ impl ExecutionContext {
         &self.memory
     }
 
+    pub fn program(&self) -> &Program {
+        &self.program
+    }
+
+    pub fn loop_span_history(&self) -> &LoopSpanHistory {
+        &self.loop_span_history
+    }
+
     pub fn tape_length(&self) -> usize {
         self.memory.len()
     }
@@ -202,82 +208,11 @@ impl ExecutionContext {
     pub fn total_cells_allocated(&self) -> usize {
         self.memory.len() + self.loop_span_history.total_cells_allocated()
     }
-
-    pub fn print_state(&self, show_execution_history: bool) {
-        let memory = array_to_string(&self.memory);
-        let memory_pointer = highlight(self.memory_pointer);
-
-        let program = self
-            .program
-            .extended_instrs
-            .iter()
-            .map(|instr| format!("{}", instr))
-            .collect::<String>();
-
-        let program_ptr = self
-            .program
-            .extended_instrs
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                if i == self.program_pointer {
-                    "^".to_string()
-                } else {
-                    " ".to_string()
-                }
-            })
-            .collect::<String>();
-
-        println!("Memory: {}", memory);
-        println!("        {}", memory_pointer);
-        println!("Program: {}", program);
-        println!("         {}", program_ptr);
-
-        if show_execution_history {
-            // Sort the active loop spans by the loop id in ascending order
-            // This allows the printed active span list to look more like a
-            // call stack, with deeper nested loops appearning below the loops
-            // they are nested in.
-            let mut active_spans = self
-                .loop_span_history
-                .active_loop_spans
-                .iter()
-                .collect::<Vec<_>>();
-            active_spans.sort_by(|(a, _), (b, _)| a.cmp(b));
-            for (idx, state) in active_spans {
-                println!("active span for instr @ {}:\n{}", idx, state);
-            }
-
-            // Do the same for the loop span history.
-            let mut span_history = self
-                .loop_span_history
-                .single_loop_spans
-                .iter()
-                .collect::<Vec<_>>();
-            span_history.sort_by(|(a, _), (b, _)| a.cmp(b));
-            for (idx, states) in span_history {
-                if states.len() > 10 {
-                    println!(
-                        "history for instr @ {} (too long: {} entries)",
-                        idx,
-                        states.len()
-                    );
-                } else {
-                    // We iterate over the states in reverse order so that
-                    // the most recent spans are at the top.
-                    println!("history for instr @ {}", idx);
-                    for state in states.iter().rev() {
-                        println!("{}", state);
-                    }
-                }
-            }
-        }
-    }
 }
 
 // TODO: Use prior subhistories. This currently only checks the most recent subhistory.
 #[derive(Debug, Clone)]
-struct LoopSpanHistory {
+pub struct LoopSpanHistory {
     // The list of actively recorded loop spans. A loop which execution is
     // currently inside of has a corresponding active loop span. When the loop
     // finishes (and is re-taken), the loop span is added to the corresponding
@@ -386,6 +321,14 @@ impl LoopSpanHistory {
                 .map(|loop_span| loop_span.total_cells_allocated())
                 .sum::<usize>()
     }
+
+    pub fn active_loop_spans(&self) -> &HashMap<usize, LoopSpan> {
+        &self.active_loop_spans
+    }
+
+    pub fn single_loop_spans(&self) -> &HashMap<usize, Vec<LoopSpan>> {
+        &self.single_loop_spans
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -394,15 +337,15 @@ impl LoopSpanHistory {
 /// in time. See LOOP_SPAN.md for more information.
 pub struct LoopSpan {
     // A snapshot of memory at the start of the loop
-    memory_at_loop_start: Vec<u8>,
+    pub memory_at_loop_start: Vec<u8>,
     // An index into the program memory denoting the position of the memory pointer at the start of the loop.
-    starting_memory_pointer: usize,
+    pub starting_memory_pointer: usize,
     // An index into the program memory denoting the position of the memory pointer at the current point in the loop.
-    current_memory_pointer: usize,
+    pub current_memory_pointer: usize,
     // The currently lowest index the memory pointer touched during the loop
-    min_index: usize,
+    pub min_index: usize,
     // The currently highest index the memory pointer touched during the loop
-    max_index: usize,
+    pub max_index: usize,
 }
 
 impl LoopSpan {
@@ -453,7 +396,7 @@ impl LoopSpan {
         }
     }
 
-    fn displacement(&self) -> isize {
+    pub fn displacement(&self) -> isize {
         self.current_memory_pointer as isize - self.starting_memory_pointer as isize
     }
 
@@ -472,76 +415,6 @@ impl PartialEq for LoopSpan {
 }
 
 impl Eq for LoopSpan {}
-
-impl Display for LoopSpan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "start: {} curr: {} min: {} max: {} (disp: {})",
-            self.starting_memory_pointer,
-            self.current_memory_pointer,
-            self.min_index,
-            self.max_index,
-            self.displacement()
-        )?;
-
-        for i in 0..self.memory_at_loop_start.len() {
-            let (fg, bg) = if i == self.starting_memory_pointer {
-                (AnsiColors::Red, AnsiColors::BrightCyan)
-            } else if self.min_index <= i && i <= self.max_index {
-                (AnsiColors::Default, AnsiColors::BrightCyan)
-            } else {
-                (AnsiColors::BrightBlack, AnsiColors::Default)
-            };
-            write!(
-                f,
-                "{} ",
-                to_hex(self.memory_at_loop_start[i]).color(fg).on_color(bg)
-            )?;
-        }
-        writeln!(f)?;
-
-        for i in 0..=self.max_index {
-            let text = if i == self.current_memory_pointer {
-                "^^"
-            } else if i == self.min_index {
-                "|-"
-            } else if i == self.max_index {
-                "-|"
-            } else if self.min_index < i && i < self.max_index {
-                "--"
-            } else {
-                "  "
-            };
-
-            write!(f, "{} ", text)?;
-        }
-        writeln!(f)?;
-        Ok(())
-    }
-}
-
-// Transform the u8 to a hexidecimal encoded string
-fn to_hex(x: u8) -> String {
-    format!("{:0>2X}", x)
-}
-
-// Transform the array of u8s to a string of hexidecimal encoded values, seperated by spaces
-fn array_to_string(array: &[u8]) -> String {
-    array
-        .iter()
-        .map(|x| to_hex(*x))
-        .intersperse(" ".to_string())
-        .collect()
-}
-
-// Return a string with a specific position highlighted by ^^
-fn highlight(index: usize) -> String {
-    (0..=index)
-        .map(|i| if index == i { "^^" } else { "  " })
-        .intersperse(" ")
-        .collect()
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Details the current status of execution in an ExecutionContext.
@@ -565,23 +438,10 @@ pub enum LoopReason {
     LoopSpan { prior: LoopSpan, current: LoopSpan },
 }
 
-impl Display for LoopReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LoopReason::LoopIfNonzero => write!(f, "LoopIfNonzero instruction triggered"),
-            LoopReason::LoopSpan { prior, current } => write!(
-                f,
-                "LoopSpan triggered. prior span: {} current span: {}",
-                prior, current
-            ),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 /// A compiled program which can be executed in an ExecutionContext.
 pub struct Program {
-    pub original_instrs: Vec<Instr>,
+    original_instrs: Vec<Instr>,
     extended_instrs: Vec<ExtendedInstr>,
     // A dictionary mapping start and end loop instructions to each other. The
     // key-value pairs represent the index into extended_instrs for the
@@ -610,6 +470,14 @@ impl Program {
     fn matching_loop(&self, i: usize) -> Option<usize> {
         self.loop_dict.get(&i).copied()
     }
+
+    pub fn extended_instrs(&self) -> &[ExtendedInstr] {
+        &self.extended_instrs
+    }
+
+    pub fn original_instrs(&self) -> &[Instr] {
+        &self.original_instrs
+    }
 }
 
 impl Display for Program {
@@ -637,7 +505,7 @@ impl TryFrom<&[u8]> for Program {
 /// An extended set of Brainfuck instructions. This is intended to simplify
 /// certain common Brainfuck constucts into a single conceptual instruction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum ExtendedInstr {
+pub enum ExtendedInstr {
     /// A base instruction that has not been transformed.
     BaseInstr(Instr),
     /// An instruction which, when executed, causes an infinite loop if the
