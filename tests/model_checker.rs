@@ -121,8 +121,6 @@ mod tests {
         max_steps: usize,
     ) -> ((ExecutionStatus, usize), (SimpleExecutionState, usize)) {
         let mut real_ctx = ExecutionContext::new(program);
-        let mut simple_ctx = SimpleExecutionContext::new(program);
-
         let mut real_state = ExecutionStatus::Running;
         let mut real_steps = 0;
         for _ in 0..max_steps {
@@ -140,13 +138,14 @@ mod tests {
             ExecutionStatus::InfiniteLoop(_) => real_steps * 2,
         };
 
+        let mut simple_ctx = SimpleExecutionContext::new(program);
         let mut simple_state = SimpleExecutionState::Running;
         let mut simple_steps = 0;
         for _ in 0..=max_steps {
             let (state, steps) = simple_ctx.step();
             simple_steps += steps;
-            if state == SimpleExecutionState::Halted {
-                simple_state = SimpleExecutionState::Halted;
+            simple_state = state;
+            if simple_state == SimpleExecutionState::Halted {
                 break;
             }
         }
