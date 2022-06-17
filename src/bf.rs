@@ -28,133 +28,136 @@ impl ExecutionContext {
     /// Returns number of actual steps run and execution state of the program.
     pub fn step(&mut self) -> (usize, ExecutionStatus) {
         let instruction = self.program.get(self.program_pointer);
+        if instruction.is_none() {
+            return (0, ExecutionStatus::Halted);
+        }
 
-        match instruction {
-            None => (0, ExecutionStatus::Halted),
-            Some(instruction) => match instruction {
-                ExtendedInstr::BaseInstr(instruction) => {
-                    // First, update the loop-spans and figure out if this iteration
-                    // is definitely looping.
-                    let execution_result = match instruction {
-                        Instr::Left => {
-                            self.loop_span_history.record_left();
-                            (1, ExecutionStatus::Running)
-                        }
-                        Instr::Right => {
-                            self.loop_span_history.record_right();
-                            (1, ExecutionStatus::Running)
-                        }
-                        // StartLoop taken. Start recording a loop span.
-                        Instr::StartLoop if self.memory[self.memory_pointer] != 0 => {
-                            let start_loop = self.program_pointer;
-                            self.loop_span_history.start_recording_loop_span(
-                                self.memory.clone(),
-                                self.memory_pointer,
-                                start_loop,
-                            );
-                            (1, ExecutionStatus::Running)
-                        }
-                        // StartLoop not taken. (Ignored, nothing special happens for this)
-                        Instr::StartLoop => (1, ExecutionStatus::Running),
-                        // EndLoop taken, stop the old loop-span recording and start a new one
-                        Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
-                            let start_loop = self
-                                .program
-                                .matching_loop(self.program_pointer)
-                                .expect("missing EndLoop dict entry!");
+        let instruction = instruction.unwrap();
 
-                            let check_span_result =
-                                self.loop_span_history.end_recording_loop_span(start_loop);
-                            self.loop_span_history.start_recording_loop_span(
-                                self.memory.clone(),
-                                self.memory_pointer,
-                                start_loop,
-                            );
+        // First, update the loop-spans, checking if the loop span history detects an infinite loop
+        let maybe_loop_reason = match instruction {
+            ExtendedInstr::BaseInstr(instruction) => match instruction {
+                Instr::Left => {
+                    self.loop_span_history.record_left();
+                    None
+                }
+                Instr::Right => {
+                    self.loop_span_history.record_right();
+                    None
+                }
+                // StartLoop taken. Start recording a loop span.
+                Instr::StartLoop if self.memory[self.memory_pointer] != 0 => {
+                    let start_loop = self.program_pointer;
+                    self.loop_span_history.start_recording_loop_span(
+                        self.memory.clone(),
+                        self.memory_pointer,
+                        start_loop,
+                    );
+                    None
+                }
+                // StartLoop not taken. (Ignored, nothing special happens for this)
+                Instr::StartLoop => None,
+                // EndLoop taken, stop the old loop-span recording and start a new one
+                Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
+                    let start_loop = self
+                        .program
+                        .matching_loop(self.program_pointer)
+                        .expect("missing EndLoop dict entry!");
 
-                            // Check if this span matches any prior union-span from before. If so, then we hit a loop.
-                            // If a loop is detected, then signal that a loop has occured.
-                            if let Some((prior, current)) = check_span_result {
-                                let inf_loop =
-                                    ExecutionStatus::InfiniteLoop(LoopReason::LoopSpan {
-                                        prior,
-                                        current,
-                                    });
-                                (1, inf_loop)
-                            } else {
-                                (1, ExecutionStatus::Running)
-                            }
-                        }
-                        // EndLoop not taken. Stop the old loop-span recording and reset the loop span history for this loop history.
-                        Instr::EndLoop => {
-                            let start_loop = self
-                                .program
-                                .matching_loop(self.program_pointer)
-                                .expect("missing EndLoop dict entry!");
+                    let check_span_result =
+                        self.loop_span_history.end_recording_loop_span(start_loop);
+                    self.loop_span_history.start_recording_loop_span(
+                        self.memory.clone(),
+                        self.memory_pointer,
+                        start_loop,
+                    );
 
-                            self.loop_span_history.end_recording_loop_span(start_loop);
-                            self.loop_span_history.reset_past_loop_spans(start_loop);
-                            (1, ExecutionStatus::Running)
-                        }
-                        _ => (1, ExecutionStatus::Running),
-                    };
-
-                    // Now actually execute the instruction
-                    match instruction {
-                        Instr::Plus => {
-                            self.memory[self.memory_pointer] =
-                                self.memory[self.memory_pointer].wrapping_add(1);
-                        }
-                        Instr::Minus => {
-                            self.memory[self.memory_pointer] =
-                                self.memory[self.memory_pointer].wrapping_sub(1);
-                        }
-                        Instr::Left => {
-                            self.memory_pointer = self.memory_pointer.saturating_sub(1);
-                        }
-                        Instr::Right => {
-                            self.memory_pointer += 1;
-                            if self.memory_pointer >= self.memory.len() {
-                                self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
-                            }
-                        }
-                        // StartLoop not taken -- Jump past corresponding EndLoop
-                        Instr::StartLoop if self.memory[self.memory_pointer] == 0 => {
-                            let start_loop = self.program_pointer;
-                            let end_loop = self
-                                .program
-                                .matching_loop(start_loop)
-                                .expect("missing StartLoop dict entry!");
-                            self.program_pointer = end_loop;
-                        }
-                        // EndLoop taken -- Jump past corresponding StartLoop
-                        Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
-                            let start_loop = self
-                                .program
-                                .matching_loop(self.program_pointer)
-                                .expect("missing EndLoop dict entry!");
-                            self.program_pointer = start_loop;
-                        }
-                        _ => (),
-                    }
-                    self.program_pointer += 1;
-                    // We check the program pointer here to ensure that we return Halted as soon as
-                    // the program would have halted. This avoids doing an extra call.
-                    // (Ex: we would like `+-><` to return Halted after executing the `< `instruction)
-                    if self.program.get(self.program_pointer).is_none() {
-                        (execution_result.0, ExecutionStatus::Halted)
+                    // Check if this span matches any prior union-span from before. If so, then we hit a loop.
+                    // If a loop is detected, then signal that a loop has occured.
+                    if let Some((prior, current)) = check_span_result {
+                        Some(LoopReason::LoopSpan { prior, current })
                     } else {
-                        execution_result
+                        None
                     }
                 }
-                ExtendedInstr::LoopIfNonzero => {
-                    if self.memory[self.memory_pointer] == 0 {
-                        self.program_pointer += 1;
-                        (1, ExecutionStatus::Running)
-                    } else {
-                        (2, ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero))
-                    }
+                // EndLoop not taken. Stop the old loop-span recording and reset the loop span history for this loop history.
+                Instr::EndLoop => {
+                    let start_loop = self
+                        .program
+                        .matching_loop(self.program_pointer)
+                        .expect("missing EndLoop dict entry!");
+
+                    self.loop_span_history.end_recording_loop_span(start_loop);
+                    self.loop_span_history.reset_past_loop_spans(start_loop);
+                    None
                 }
+                _ => None,
             },
+            ExtendedInstr::LoopIfNonzero => None,
+        };
+
+        let (steps_run, status) = match instruction {
+            ExtendedInstr::BaseInstr(instruction) => {
+                // Now actually execute the instruction
+                match instruction {
+                    Instr::Plus => {
+                        self.memory[self.memory_pointer] =
+                            self.memory[self.memory_pointer].wrapping_add(1);
+                    }
+                    Instr::Minus => {
+                        self.memory[self.memory_pointer] =
+                            self.memory[self.memory_pointer].wrapping_sub(1);
+                    }
+                    Instr::Left => {
+                        self.memory_pointer = self.memory_pointer.saturating_sub(1);
+                    }
+                    Instr::Right => {
+                        self.memory_pointer += 1;
+                        if self.memory_pointer >= self.memory.len() {
+                            self.memory.extend([0; EXTEND_MEMORY_AMOUNT].iter());
+                        }
+                    }
+                    // StartLoop not taken -- Jump past corresponding EndLoop
+                    Instr::StartLoop if self.memory[self.memory_pointer] == 0 => {
+                        let start_loop = self.program_pointer;
+                        let end_loop = self
+                            .program
+                            .matching_loop(start_loop)
+                            .expect("missing StartLoop dict entry!");
+                        self.program_pointer = end_loop;
+                    }
+                    // EndLoop taken -- Jump past corresponding StartLoop
+                    Instr::EndLoop if self.memory[self.memory_pointer] != 0 => {
+                        let start_loop = self
+                            .program
+                            .matching_loop(self.program_pointer)
+                            .expect("missing EndLoop dict entry!");
+                        self.program_pointer = start_loop;
+                    }
+                    _ => (),
+                }
+                (1, ExecutionStatus::Running)
+            }
+            ExtendedInstr::LoopIfNonzero => {
+                if self.memory[self.memory_pointer] == 0 {
+                    (1, ExecutionStatus::Running)
+                } else {
+                    // If we execute the loop, then immediately return--this is a static loop.
+                    return (2, ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero));
+                }
+            }
+        };
+
+        // Finally, increment the program counter and check if the program halted.
+        self.program_pointer += 1;
+        if self.program.get(self.program_pointer).is_none() {
+            (steps_run, ExecutionStatus::Halted)
+        } else {
+            if let Some(loop_reason) = maybe_loop_reason {
+                (steps_run, ExecutionStatus::InfiniteLoop(loop_reason))
+            } else {
+                (steps_run, status)
+            }
         }
     }
 
@@ -685,11 +688,12 @@ mod tests {
     #[track_caller]
     fn assert_not_halting_loop_if_nonzero(program: &str) {
         let program = Program::try_from(program).unwrap();
+        let status = eval(&program, 9_999_999).unwrap();
         let result = matches!(
-            eval(&program, 9_999_999).unwrap(),
+            status,
             ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero)
         );
-        assert!(result);
+        assert!(result, "Actual: {:?}", status);
     }
 
     #[track_caller]
