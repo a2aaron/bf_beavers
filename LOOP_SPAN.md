@@ -6,9 +6,9 @@ Brainfuck is an esoteric programming language consisting of an extremely small n
 ```
 (Source: https://en.wikipedia.org/wiki/Brainfuck#Hello_World!)
 
-It is designed to be difficult to program due to its extremely simple design. Many interesting questions can be asked about this programming language. One of them is the Busy Beaver problem, which is as follows:
+Brainfuck is designed to be difficult to program due to its extremely simple design. However, this extreme simplicity also means that it is much easier to analyze. Many interesting questions can be asked about this programming language. One of them is the Busy Beaver problem, which is as follows:
 
-What is the _longest running_ Brainfuck program consisting of exactly `N` characters, for each `N`?
+For each natural number `N`, what is the _longest running but eventually halting_ Brainfuck program that consists of exactly `N` characters?
 
 Note that the Brainfuck program must terminate--it cannot run forever (otherwise obviously the longest running Brainfuck program is just any program which loops forever).
 
@@ -18,32 +18,34 @@ Note: Some variations of the Busy Beaver problem exist--for example, we could as
 
 The particular semantics of Brainfuck differ between implementations subtly. I have chosen to use the following semantics:
 
-- A Brainfuck program consists of six instructions: `+`, `-`, `>`, `<`, `[`, and `]`. All other characters are ignored.
-- Every `[` must have a corresponding `]`. Programs which do not are invalid.
-- There exists a **memory tape**, also called the memory, which is an array of cells that extends infinitely to the right. The cells can be indexed starting from zero. The zeroth-cell is called the _first cell_
-- There exists a **memory pointer** that can point to a single cell at any given time. The cell currently pointed by the memory pointer is called the _current cell_
+- A Brainfuck program consists of six instructions: `+`, `-`, `>`, `<`, `[`, and `]`. All other characters (including `.` and `,` are ignored).
+- Every `[` must have a corresponding `]` and vice versa. Programs which do not are invalid.
+- There exists a **memory tape**, also called the memory or the tape, which is an array of cells that extends infinitely to the right. The cells can be indexed starting from zero. 
+- There exists a **memory pointer** that can point to a single cell at any given time. The cell currently pointed by the memory pointer is called the _current cell_.
 - There exists a **program pointer**, which points to the current instruction to be executed.
 - Cells may take on values from `00` to `FF`.
-- At the beginning of execution, every cell is initialized to zero and the memory pointer points to the first cell.
+- At the beginning of execution, every cell is initialized to zero and the memory pointer points to the zeroth cell.
 - At each step of execution, the instruction at the program pointer is executed (according to the descriptions below). Then, the program pointer is incremented by one. If the program pointer is no longer pointing to any instructions (and hence has reached the end of the program), then the program halts.
 - `+` - If the current cell's value is not `FF`, then increment the value of the cell. Otherwise, the cell's value instead wraps around to `00`.
 - `-` - If the current cell's value is not `00`, then decrement the value of the cell. Otherwise, the cell's value instead wraps around to `FF`.
 - `>` - Move the memory pointer to the cell to the right. That is to say, the memory pointer now points to the cell whose index is one higher than was pointed to before.
-- `<` - If the memory pointer is not pointing to the first cell, then move the memory pointer to the cell to the left. If the memory pointer is already pointing to the first cell, then this instruction does nothing.
+- `<` - If the memory pointer is not pointing to the zeroth cell, then move the memory pointer to the cell to the left. If the memory pointer is already pointing to the zeroth cell, then this instruction does nothing.
 - `[` - If the current cell's value is zero, then jump to the matching `]`. Otherwise, do nothing. (Note that the program pointer is still incremented, so this effectively means that `[` either jumps one past the matching `]`, or is a no-op. For example, in the program `[++--++]<>>`, the order of execution of instructions is `[>>>`)
 - `]` - If the current cell's value is non-zero, then jump to the matching `[`. Otherwise, do nothing. (Note that the program pointer is still incremented, so this effectively means that `[` either jumps one past the matching `[` or is a no-op. For example, in the program `---[+]>>>`, the order of execution of instructions is `---[+]+]+]>>`).
 
 This is similar to most other Brainfuck implementations. A list of notable differences is listed below:
 
-- There is no `.` or `,` instruction. This means that there is no user input or output. The `,` instruction is absent because we need programs to execute deterministically, and user input would make this impossible. The `.` instruction is absent because this would effectly be a no-op, which is boring and uninteresting. (at best, `.` would simply serve to pad out the number of BF programs which exist without meaningfully changing the semantics). This also allows me to entirely sidestep the issues of newline and EOF handling.
-- Cell values are in the range `00` to `FF` and are explicitly defined to wrap. This matches lots of other implementations and allows for common constructs like `[-]` to mean "zero out a cell"
+- There is no `.` or `,` instruction. This means that there is no user input or output. The `,` instruction is absent because we need programs to execute deterministically, and user input would make this impossible. The `.` instruction is absent because this would effectly be a no-op, which is boring and uninteresting. (at best, `.` would simply serve to pad out the number of BF programs which exist without meaningfully changing the semantics). This also allows me to entirely sidestep the issues of newline and EOF handling, which BF implementations often differer on.
+- Cell values are in the range `00` to `FF` and are explicitly defined to wrap. This matches lots of other implementations and allows for common constructs like `[-]` to mean "zero out a cell".
 - The tape is infinite towards the right. Having a finite tape seems boring and doesn't match most implementatinons anyways.
 - Attempting to move off the tape towards the left does nothing. This avoids needing to implement an "error" state and introduces an interesting asymmetry--moving to the right is always possible, but moving towards the left eventually is not possible. Hence, programs blindly move towards the left eventually experience different behavior from programs which blindly move towards the right (which means it isn't possible to simply swap `>` and `<` and still have the same program).
 - `[` and `]` do not jump directly onto the matching brace, but instead one past the brace. This is to avoid useless additional current cell checks, and to more clealy allow the transformation of a Brainfuck loop into a `while` loop construct.
+    - For example, in the loop `[+]-`, if execution is at the `[` instruction and the current cell value is zero, then the branch is not taken, and the next instruction would be `-`, and not `]`
+    - Similarly, if execution is at the `]` instruction and the current cell value is non-zero, then the branch is taken, and the next instruction would be `+`, and not `[`
 
-## The Halting Problem
+# The Halting Problem
 
-In order to determine if a given BF program is a busy-beaver champion, we need to be able to decide if the program ever halts. While this is impossible in the general case, we can do pretty well for lots of cases.
+In order to determine if a given BF program is a busy-beaver champion, we need to be able to decide if the program ever halts. While this is impossible in the general case, we can do pretty well for lots of cases. However, how do we detect when a program is non-halting at all? There's a few approaches. Let's start with the simplest possible one:
 
 ## Approach 1: Full-State Cycle Detection
 
@@ -56,9 +58,9 @@ The state required to store a currently executing Brainfuck program is quite sma
 The program pointer and memory pointer are very cheap and just consists of a `usize` each. The memory itself is also very cheap. Since all cells are initially zero at the start of execution, we can store only the cells which are accessed. There are a bunch of ways we could do this, but the simplest is to just store the "loaded" part of memory in a vector and grow the vector as nessecary as we move to the right into new cells. For small programs, this is typically extremely small. (We could try to improve this scheme, for example by only allocating memory if we write into a cell that we then later will read from, but this method is sufficent for now).
 
 ### The Method
-Given this simplicity, it seems like we have a simple method of determining if a program has entered a cycle: Store an "execution history" of prior program states and check if the current state ever matches a prior state. If so, then this cycle must continue (since program execution is deterministic and we have recorded everything that could possibly affect the program state, nothing could ever break us out of the loop).
+Given this simplicity, it seems like we have a simple method of determining if a program has entered a cycle: Store an "execution history" of prior program states and check if the current state ever matches a prior state. If so, then this cycle must continue. Since program execution is deterministic and we have recorded everything that could possibly affect the program state, nothing could ever break us out of the loop.
 
-Now, saving state for every instruction seems somewhat wasteful. We only can get into an infinite loop whenever a we have a loop-construct. Hence, we can instead associate each loop with an execution history. Each time we reach the start of the loop (which happens either when initially going into the loop via `[` or by jumping backwards via `]`), we check the current state against the execution history list. If the current state appears in the list, then we know an infinite loop has occured. Otherwise, we add the current state to the execution history list and continue.
+Now, saving state for every instruction seems somewhat wasteful. We only can get into an infinite loop whenever a we have a loop-construct. Hence, we can instead associate each loop with an execution history. Each time we reach the start of a loop (which happens either when initially going into the loop via `[` or by jumping backwards via `]`), we check the current state against the execution history list. If the current state appears in the list, then we know an infinite loop has occured. Otherwise, we add the current state to the execution history list and continue.
 
 In pseudo-Rust, the loop-detection algorithm might look like this:
 
@@ -83,12 +85,14 @@ fn loop_detector(program: SomeBrainfuckProgram) {
             // execution_history is empty. Otherwise, it should contain the set
             // of all the previously seen program states.
             let execution_history = execution_histories[loop_id]
+
             // If the current state is in the execution history, then that means
             // we have reached a prior state and that this program must be 
             // looping.
             if current_state is in execution_history {
                 signal infinite loop detected
             }
+
             // We then add the current state to the execution history for the 
             // next program iteration to use 
             add current_state to execution_history
