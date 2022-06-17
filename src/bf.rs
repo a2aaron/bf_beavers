@@ -93,7 +93,7 @@ impl ExecutionContext {
                 }
                 _ => None,
             },
-            ExtendedInstr::LoopIfNonzero => None,
+            _ => None,
         };
 
         let (steps_run, status) = match instruction {
@@ -145,6 +145,17 @@ impl ExecutionContext {
                     // If we execute the loop, then immediately return--this is a static loop.
                     return (2, ExecutionStatus::InfiniteLoop(LoopReason::LoopIfNonzero));
                 }
+            }
+            ExtendedInstr::SetToZeroPlus => {
+                let steps_run =
+                    1 + 2 * (0_u8.wrapping_sub(self.memory[self.memory_pointer]) as usize);
+                self.memory[self.memory_pointer] = 0;
+                (steps_run, ExecutionStatus::Running)
+            }
+            ExtendedInstr::SetToZeroMinus => {
+                let steps_run = 1 + 2 * self.memory[self.memory_pointer] as usize;
+                self.memory[self.memory_pointer] = 0;
+                (steps_run, ExecutionStatus::Running)
             }
         };
 
@@ -515,6 +526,8 @@ pub enum ExtendedInstr {
     /// current memory cell is nonzero, and otherwise is a NOP. This instruction
     /// of length 2, and represents "[]" in base Brainfuck.
     LoopIfNonzero,
+    SetToZeroPlus,
+    SetToZeroMinus,
 }
 
 impl ExtendedInstr {
@@ -527,12 +540,21 @@ impl ExtendedInstr {
         while i < program.len() {
             let this_instr = program[i];
             let next_instr = program.get(i + 1);
-            let extended_instr = match (this_instr, next_instr) {
-                (Instr::StartLoop, Some(Instr::EndLoop)) => {
+            let next_next_instr = program.get(i + 2);
+            let extended_instr = match (this_instr, next_instr, next_next_instr) {
+                (Instr::StartLoop, Some(Instr::Plus), Some(Instr::EndLoop)) => {
+                    i += 3;
+                    ExtendedInstr::SetToZeroPlus
+                }
+                (Instr::StartLoop, Some(Instr::Minus), Some(Instr::EndLoop)) => {
+                    i += 3;
+                    ExtendedInstr::SetToZeroMinus
+                }
+                (Instr::StartLoop, Some(Instr::EndLoop), _) => {
                     i += 2;
                     ExtendedInstr::LoopIfNonzero
                 }
-                (instr, _) => {
+                (instr, _, _) => {
                     i += 1;
                     ExtendedInstr::BaseInstr(instr)
                 }
@@ -548,6 +570,8 @@ impl Display for ExtendedInstr {
         match self {
             ExtendedInstr::BaseInstr(base_instr) => write!(f, "{}", base_instr),
             ExtendedInstr::LoopIfNonzero => write!(f, "L"),
+            ExtendedInstr::SetToZeroPlus => write!(f, "⊞"),
+            ExtendedInstr::SetToZeroMinus => write!(f, "⊟"),
         }
     }
 }
@@ -558,7 +582,6 @@ fn loop_dict(program: &[ExtendedInstr]) -> Result<HashMap<usize, usize>, Compile
     let mut startloop_locs = Vec::new();
     for (i, &instr) in program.iter().enumerate() {
         match instr {
-            ExtendedInstr::LoopIfNonzero => (),
             ExtendedInstr::BaseInstr(instr) => match instr {
                 Plus | Minus | Left | Right => (),
                 StartLoop => {
@@ -574,6 +597,7 @@ fn loop_dict(program: &[ExtendedInstr]) -> Result<HashMap<usize, usize>, Compile
                     };
                 }
             },
+            _ => (),
         }
     }
     if !startloop_locs.is_empty() {

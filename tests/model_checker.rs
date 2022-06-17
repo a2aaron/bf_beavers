@@ -222,4 +222,30 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_set_to_zero() {
+        let max_steps = 50_000;
+        for i in 0..=255 {
+            let program = Program::try_from(
+                std::iter::repeat("+")
+                    .take(i)
+                    .chain(std::iter::once("[+]"))
+                    .collect::<String>()
+                    .as_str(),
+            )
+            .unwrap();
+            assert_model_matches(&program, max_steps);
+
+            let program = Program::try_from(
+                std::iter::repeat("+")
+                    .take(i)
+                    .chain(std::iter::once("[-]"))
+                    .collect::<String>()
+                    .as_str(),
+            )
+            .unwrap();
+            assert_model_matches(&program, max_steps);
+        }
+    }
 }
