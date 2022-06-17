@@ -53,31 +53,33 @@ impl History {
 
     /// Return the HistoryData corresponding to step `step`. This function attempts to cache results when possible.
     fn get(&mut self, step: usize) -> HistoryData {
-        if self.history.contains_key(&step) {
-            self.history[&step].clone()
-        } else {
-            // Get the nearest entry below the step count.
-            let nearest_lower_entry = self.history.range(..step).next_back();
-            let (steps_to_run, mut data) = match nearest_lower_entry {
-                Some((lower_steps, history_data)) => (step - lower_steps, history_data.clone()),
-                None => (step, HistoryData::new(&self.program)),
-            };
-
-            // Advance the execution context to the desired step.
-            for i in 0..steps_to_run {
-                let step = (step - steps_to_run) + i;
-                data.step();
-
-                // We cache every 1000th step here because it is likely that the user will want to keep going backwards.
-                // Caching some intermediate steps avoids having to recompute a lot of work each time.
-                if step % 1000 == 0 && !self.history.contains_key(&step) {
-                    self.insert_step(step, data.clone());
+        // Get the nearest entry below the step count.
+        let nearest_lower_entry = self.history.range(..step).next_back();
+        let (steps_to_run, mut data) = match nearest_lower_entry {
+            Some((&lower_steps, history_data)) => {
+                if lower_steps == step {
+                    return history_data.clone();
+                } else {
+                    (step - lower_steps, history_data.clone())
                 }
             }
+            None => (step, HistoryData::new(&self.program)),
+        };
 
-            self.insert_step(step, data.clone());
-            data
+        // Advance the execution context to the desired step.
+        for i in 0..steps_to_run {
+            let step = (step - steps_to_run) + i;
+            data.step();
+
+            // We cache every 1000th step here because it is likely that the user will want to keep going backwards.
+            // Caching some intermediate steps avoids having to recompute a lot of work each time.
+            if step % 1000 == 0 && !self.history.contains_key(&step) {
+                self.insert_step(step, data.clone());
+            }
         }
+
+        self.insert_step(step, data.clone());
+        data
     }
 
     /// Return the HistoryData corresponding to the soonest time when execution reaches the end
