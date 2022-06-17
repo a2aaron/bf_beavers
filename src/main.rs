@@ -32,8 +32,7 @@ fn step_count(program: &bf::Program, max_steps: usize) -> (ExecutionStatus, Opti
 }
 
 struct BusyBeaverResults {
-    best_programs: Vec<bf::Program>,
-    best_steps: usize,
+    busy_beavers: (usize, Vec<bf::Program>),
     hardest_to_prove: Option<(usize, bf::Program)>,
     max_tape_length: usize,
     unknown_programs: Vec<bf::Program>,
@@ -59,8 +58,7 @@ fn beaver(
             let (state, step, max_tape_length) = step_count(&program, max_steps);
             match state {
                 ExecutionStatus::Running => BusyBeaverResults {
-                    best_programs: vec![],
-                    best_steps: 0,
+                    busy_beavers: (0, vec![]),
                     max_tape_length,
                     hardest_to_prove: None,
                     unknown_programs: vec![program],
@@ -68,8 +66,7 @@ fn beaver(
                     num_looping: 0,
                 },
                 ExecutionStatus::Halted => BusyBeaverResults {
-                    best_programs: vec![program],
-                    best_steps: step.unwrap(),
+                    busy_beavers: (step.unwrap(), vec![program]),
                     max_tape_length,
                     hardest_to_prove: None,
                     unknown_programs: vec![],
@@ -77,8 +74,7 @@ fn beaver(
                     num_looping: 0,
                 },
                 ExecutionStatus::InfiniteLoop(_) => BusyBeaverResults {
-                    best_programs: vec![],
-                    best_steps: 0,
+                    busy_beavers: (0, vec![]),
                     max_tape_length,
                     hardest_to_prove: Some((step.unwrap(), program)),
                     unknown_programs: vec![],
@@ -89,8 +85,7 @@ fn beaver(
         })
         .reduce(
             || BusyBeaverResults {
-                best_programs: vec![],
-                best_steps: 0,
+                busy_beavers: (0, vec![]),
                 max_tape_length: 0,
                 hardest_to_prove: None,
                 unknown_programs: vec![],
@@ -98,17 +93,18 @@ fn beaver(
                 num_looping: 0,
             },
             |mut a, mut b| BusyBeaverResults {
-                best_programs: {
-                    if a.best_steps == b.best_steps {
-                        a.best_programs.append(&mut b.best_programs);
-                        a.best_programs
-                    } else if a.best_steps > b.best_steps {
-                        a.best_programs
+                busy_beavers: {
+                    let best_steps = a.busy_beavers.0.max(b.busy_beavers.0);
+                    let best_programs = if a.busy_beavers.0 == b.busy_beavers.0 {
+                        a.busy_beavers.1.append(&mut b.busy_beavers.1);
+                        a.busy_beavers.1
+                    } else if a.busy_beavers.0 > b.busy_beavers.0 {
+                        a.busy_beavers.1
                     } else {
-                        b.best_programs
-                    }
+                        b.busy_beavers.1
+                    };
+                    (best_steps, best_programs)
                 },
-                best_steps: a.best_steps.max(b.best_steps),
                 hardest_to_prove: match (a.hardest_to_prove, b.hardest_to_prove) {
                     (Some((a_steps, a_prog)), Some((b_steps, b_prog))) => {
                         if a_steps > b_steps {
@@ -195,10 +191,10 @@ fn main() {
             let mut f = std::fs::File::create(format!("length_{}.txt", i)).unwrap();
             writeln!(f,
                 "Best Busy Beavers for Length {}\nTotal steps: {} (or best runs for longer than {} steps)",
-                i, results.best_steps, args.max_steps
+                i, results.busy_beavers.0, args.max_steps
             ).unwrap();
 
-            for program in results.best_programs {
+            for program in results.busy_beavers.1 {
                 writeln!(f, "{}", program).unwrap();
             }
 
