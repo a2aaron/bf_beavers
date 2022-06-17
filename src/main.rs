@@ -39,14 +39,15 @@ struct BusyBeaverResults {
     unknown_programs: Vec<bf::Program>,
     num_halted: usize,
     num_looping: usize,
-    lexiographic_size: usize,
 }
 
-fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBeaverResults {
+fn beaver(
+    length: usize,
+    max_steps: usize,
+    print_every: Option<usize>,
+) -> (BusyBeaverResults, usize) {
     let programs = generate::brute_force_iterator(length);
-    let lexiographic_size = 6_usize.pow(length as u32);
-
-    programs
+    let results = programs
         .enumerate()
         .inspect(|(i, program)| {
             if let Some(print_every) = print_every && i % print_every == 0 && *i != 0 {
@@ -65,7 +66,6 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     unknown_programs: vec![program],
                     num_halted: 0,
                     num_looping: 0,
-                    lexiographic_size,
                 },
                 ExecutionStatus::Halted => BusyBeaverResults {
                     best_programs: vec![program],
@@ -75,7 +75,6 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     unknown_programs: vec![],
                     num_halted: 1,
                     num_looping: 0,
-                    lexiographic_size,
                 },
                 ExecutionStatus::InfiniteLoop(_) => BusyBeaverResults {
                     best_programs: vec![],
@@ -85,7 +84,6 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                     unknown_programs: vec![],
                     num_halted: 0,
                     num_looping: 1,
-                    lexiographic_size,
                 },
             }
         })
@@ -98,7 +96,6 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                 unknown_programs: vec![],
                 num_halted: 0,
                 num_looping: 0,
-                lexiographic_size,
             },
             |mut a, mut b| BusyBeaverResults {
                 best_programs: {
@@ -131,9 +128,11 @@ fn beaver(length: usize, max_steps: usize, print_every: Option<usize>) -> BusyBe
                 },
                 num_halted: a.num_halted + b.num_halted,
                 num_looping: a.num_looping + b.num_looping,
-                lexiographic_size,
             },
-        )
+        );
+
+    let lexiographic_size = 6_usize.pow(length as u32);
+    (results, lexiographic_size)
 }
 
 #[derive(Parser, Debug)]
@@ -191,7 +190,7 @@ fn main() {
         }
     } else {
         for i in 0..=args.max_length {
-            let results = beaver(i, args.max_steps, args.print_every);
+            let (results, lexiographic_size) = beaver(i, args.max_steps, args.print_every);
 
             let mut f = std::fs::File::create(format!("length_{}.txt", i)).unwrap();
             writeln!(f,
@@ -227,8 +226,8 @@ fn main() {
                 f,
                 "L + ratio: {}/{} ({:.1}%)",
                 total,
-                results.lexiographic_size,
-                100.0 * total as f32 / results.lexiographic_size as f32
+                lexiographic_size,
+                100.0 * total as f32 / lexiographic_size as f32
             )
             .unwrap();
             writeln!(f, "max tape length: {}", results.max_tape_length).unwrap();
