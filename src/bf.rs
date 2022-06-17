@@ -25,6 +25,17 @@ impl ExecutionContext {
         }
     }
 
+    pub fn with_memory(program: Program, memory: Vec<u8>) -> ExecutionContext {
+        let loop_span_history = LoopSpanHistory::new(&program);
+        ExecutionContext {
+            memory,
+            memory_pointer: 0,
+            program_pointer: 0,
+            program,
+            loop_span_history,
+        }
+    }
+
     /// Returns number of actual steps run and execution state of the program.
     pub fn step(&mut self) -> (usize, ExecutionStatus) {
         let instruction = self.program.get(self.program_pointer);
