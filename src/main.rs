@@ -60,10 +60,8 @@ impl BusyBeaverResults {
         BusyBeaverResults {
             busy_beavers: (steps, vec![program]),
             max_tape_length,
-            hardest_to_prove: None,
-            unknown_programs: vec![],
             num_halted: 1,
-            num_looping: 0,
+            ..BusyBeaverResults::identity()
         }
     }
 
@@ -73,23 +71,18 @@ impl BusyBeaverResults {
         max_tape_length: usize,
     ) -> BusyBeaverResults {
         BusyBeaverResults {
-            busy_beavers: (0, vec![]),
             max_tape_length,
             hardest_to_prove: Some((steps, program)),
-            unknown_programs: vec![],
-            num_halted: 0,
             num_looping: 1,
+            ..BusyBeaverResults::identity()
         }
     }
 
     fn from_unknown(program: bf::Program, max_tape_length: usize) -> BusyBeaverResults {
         BusyBeaverResults {
-            busy_beavers: (0, vec![]),
             max_tape_length,
-            hardest_to_prove: None,
             unknown_programs: vec![program],
-            num_halted: 0,
-            num_looping: 0,
+            ..BusyBeaverResults::identity()
         }
     }
 }
