@@ -40,6 +40,60 @@ struct BusyBeaverResults {
     num_looping: usize,
 }
 
+impl BusyBeaverResults {
+    fn identity() -> BusyBeaverResults {
+        BusyBeaverResults {
+            busy_beavers: (0, vec![]),
+            max_tape_length: 0,
+            hardest_to_prove: None,
+            unknown_programs: vec![],
+            num_halted: 0,
+            num_looping: 0,
+        }
+    }
+
+    fn from_halted(
+        program: bf::Program,
+        steps: usize,
+        max_tape_length: usize,
+    ) -> BusyBeaverResults {
+        BusyBeaverResults {
+            busy_beavers: (steps, vec![program]),
+            max_tape_length,
+            hardest_to_prove: None,
+            unknown_programs: vec![],
+            num_halted: 1,
+            num_looping: 0,
+        }
+    }
+
+    fn from_looping(
+        program: bf::Program,
+        steps: usize,
+        max_tape_length: usize,
+    ) -> BusyBeaverResults {
+        BusyBeaverResults {
+            busy_beavers: (0, vec![]),
+            max_tape_length,
+            hardest_to_prove: Some((steps, program)),
+            unknown_programs: vec![],
+            num_halted: 0,
+            num_looping: 1,
+        }
+    }
+
+    fn from_unknown(program: bf::Program, max_tape_length: usize) -> BusyBeaverResults {
+        BusyBeaverResults {
+            busy_beavers: (0, vec![]),
+            max_tape_length,
+            hardest_to_prove: None,
+            unknown_programs: vec![program],
+            num_halted: 0,
+            num_looping: 0,
+        }
+    }
+}
+
 fn beaver(
     length: usize,
     max_steps: usize,
@@ -55,43 +109,21 @@ fn beaver(
         })
         .par_bridge()
         .map(|(_, program)| {
-            let (state, step, max_tape_length) = step_count(&program, max_steps);
+            let (state, steps, max_tape_length) = step_count(&program, max_steps);
             match state {
-                ExecutionStatus::Running => BusyBeaverResults {
-                    busy_beavers: (0, vec![]),
-                    max_tape_length,
-                    hardest_to_prove: None,
-                    unknown_programs: vec![program],
-                    num_halted: 0,
-                    num_looping: 0,
-                },
-                ExecutionStatus::Halted => BusyBeaverResults {
-                    busy_beavers: (step.unwrap(), vec![program]),
-                    max_tape_length,
-                    hardest_to_prove: None,
-                    unknown_programs: vec![],
-                    num_halted: 1,
-                    num_looping: 0,
-                },
-                ExecutionStatus::InfiniteLoop(_) => BusyBeaverResults {
-                    busy_beavers: (0, vec![]),
-                    max_tape_length,
-                    hardest_to_prove: Some((step.unwrap(), program)),
-                    unknown_programs: vec![],
-                    num_halted: 0,
-                    num_looping: 1,
-                },
+                ExecutionStatus::Running => {
+                    BusyBeaverResults::from_unknown(program, max_tape_length)
+                }
+                ExecutionStatus::Halted => {
+                    BusyBeaverResults::from_halted(program, steps.unwrap(), max_tape_length)
+                }
+                ExecutionStatus::InfiniteLoop(_) => {
+                    BusyBeaverResults::from_looping(program, steps.unwrap(), max_tape_length)
+                }
             }
         })
         .reduce(
-            || BusyBeaverResults {
-                busy_beavers: (0, vec![]),
-                max_tape_length: 0,
-                hardest_to_prove: None,
-                unknown_programs: vec![],
-                num_halted: 0,
-                num_looping: 0,
-            },
+            || BusyBeaverResults::identity(),
             |mut a, mut b| BusyBeaverResults {
                 busy_beavers: {
                     let best_steps = a.busy_beavers.0.max(b.busy_beavers.0);
